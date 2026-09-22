@@ -64,7 +64,6 @@ class AgentOrchestrator:
     def run_lifecycle(self, raw_goal: str):
         """
         Runs the full deterministic lifecycle synchronously.
-        In a production system, this would be asynchronous and yield between steps.
         """
         try:
             self._audit("TASK_STARTED", "SUCCESS", {"raw_goal": raw_goal})
@@ -83,7 +82,6 @@ class AgentOrchestrator:
             # 3. POLICY CHECK
             self._transition(AgentState.POLICY_CHECK, "Evaluating plan against policy")
             
-            # Evaluate all steps for maximum risk (simplified policy evaluation for plan)
             max_risk_decision = None
             for step in self.plan.steps:
                 decision = self.policy_engine.evaluate(step.action)
@@ -98,12 +96,9 @@ class AgentOrchestrator:
             self._audit("POLICY_CHECKED", "SUCCESS", max_risk_decision.model_dump() if max_risk_decision else {})
             
             if max_risk_decision and max_risk_decision.decision in [PolicyDecisionResult.REQUIRE_APPROVAL, PolicyDecisionResult.REQUIRE_SNAPSHOT]:
-                self._transition(AgentState.WAITING_APPROVAL, f"Waiting for approval/snapshot: {max_risk_decision.reason}")
-                # For Phase 2 automated tests, we simulate approval or just pause.
-                # Since we want to run end-to-end, let's assume it gets auto-approved if running synchronously,
-                # or we just stop and wait for the API to resume.
-                # To keep it simple, we auto-transition for deterministic test unless blocked.
-                self._audit("APPROVAL_SIMULATED", "SUCCESS", {})
+                self._transition(AgentState.WAITING_APPROVAL, f"Waiting for approval: {max_risk_decision.reason}", max_risk_decision.model_dump())
+                # In Phase 3, we pause here. The caller will persist the state and wait for API interaction.
+                return
 
             # 4. EXECUTION LOOP
             self._transition(AgentState.READY, "Ready for execution")
@@ -113,6 +108,25 @@ class AgentOrchestrator:
             logger.exception("Agent lifecycle failed")
             if not self.state_machine.is_terminal():
                 self._transition(AgentState.FAILED, f"Unexpected error: {str(e)}")
+            self._audit("TASK_FAILED", "FAILED", {"error": str(e)})
+
+    def resume_from_approval(self, approved: bool, reason: str = ""):
+        """
+        Resumes the orchestrator after a human approval decision.
+        Must be called when current_state == WAITING_APPROVAL.
+        """
+        try:
+            if approved:
+                self._audit("APPROVAL_GRANTED", "SUCCESS", {"reason": reason})
+                self._transition(AgentState.READY, "Approval granted")
+                self._execute_plan()
+            else:
+                self._audit("APPROVAL_REJECTED", "FAILED", {"reason": reason})
+                self._transition(AgentState.FAILED, f"Task rejected by user: {reason}")
+        except Exception as e:
+            logger.exception("Agent resume failed")
+            if not self.state_machine.is_terminal():
+                self._transition(AgentState.FAILED, f"Unexpected error during resume: {str(e)}")
             self._audit("TASK_FAILED", "FAILED", {"error": str(e)})
 
     def _execute_plan(self):

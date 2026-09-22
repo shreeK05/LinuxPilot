@@ -51,58 +51,63 @@ class DeterministicPlanner(Planner):
     Do NOT use as a real planner.
     """
     def create_plan(self, goal: GoalUnderstanding) -> ExecutionPlan:
-        # A simple branching plan for testing
+        # Map specific text from the Phase 3 manual test sequence to actual plans
+        obj = goal.objective.lower()
+        import os
+        from pathlib import Path
+        home_docs = str(Path.home() / "Documents")
+        
+        if "create a folder called linuxpilot-test" in obj:
+            step1 = PlanStep(
+                step_id="step-create",
+                name="Create Test Folder",
+                dependencies=[],
+                action=ActionDefinition(
+                    action_type="filesystem.create_directory",
+                    parameters={"path": os.path.join(home_docs, "LinuxPilot-Test")},
+                    risk_level=RiskLevel.LEVEL_2_MODIFY
+                )
+            )
+            return ExecutionPlan(plan_id=str(uuid.uuid4()), steps=[step1], risk_level=RiskLevel.LEVEL_2_MODIFY)
+            
+        elif "rename linuxpilot-test to linuxpilot-demo" in obj:
+            step1 = PlanStep(
+                step_id="step-rename",
+                name="Rename Test Folder",
+                dependencies=[],
+                action=ActionDefinition(
+                    action_type="filesystem.rename",
+                    parameters={
+                        "source": os.path.join(home_docs, "LinuxPilot-Test"),
+                        "destination_name": "LinuxPilot-Demo"
+                    },
+                    risk_level=RiskLevel.LEVEL_2_MODIFY
+                )
+            )
+            return ExecutionPlan(plan_id=str(uuid.uuid4()), steps=[step1], risk_level=RiskLevel.LEVEL_2_MODIFY)
+            
+        elif "delete linuxpilot-demo" in obj:
+            step1 = PlanStep(
+                step_id="step-delete",
+                name="Delete Test Folder",
+                dependencies=[],
+                action=ActionDefinition(
+                    action_type="filesystem.delete",
+                    parameters={"path": os.path.join(home_docs, "LinuxPilot-Demo")},
+                    risk_level=RiskLevel.LEVEL_4_DESTRUCTIVE
+                )
+            )
+            return ExecutionPlan(plan_id=str(uuid.uuid4()), steps=[step1], risk_level=RiskLevel.LEVEL_4_DESTRUCTIVE)
+        
+        # Fallback for old tests or generic actions
         step1 = PlanStep(
-            step_id="step-1",
-            name="Initialize",
+            step_id="step-fallback",
+            name="Generic Info",
             dependencies=[],
             action=ActionDefinition(
-                action_type="test.init",
-                parameters={"target": "system"},
+                action_type="system.info",
+                parameters={"command": "disk_usage"},
                 risk_level=RiskLevel.LEVEL_0_READ_ONLY
             )
         )
-        
-        step2 = PlanStep(
-            step_id="step-2",
-            name="Search",
-            dependencies=["step-1"],
-            action=ActionDefinition(
-                action_type="test.search",
-                parameters={"query": goal.objective},
-                risk_level=RiskLevel.LEVEL_0_READ_ONLY
-            )
-        )
-        
-        step3 = PlanStep(
-            step_id="step-3",
-            name="Validate",
-            dependencies=["step-1"], # Parallel with step 2
-            action=ActionDefinition(
-                action_type="test.validate",
-                parameters={"constraints": goal.constraints},
-                risk_level=RiskLevel.LEVEL_0_READ_ONLY
-            )
-        )
-        
-        step4 = PlanStep(
-            step_id="step-4",
-            name="Finalize",
-            dependencies=["step-2", "step-3"],
-            action=ActionDefinition(
-                action_type="test.finalize",
-                parameters={"outcome": goal.expected_outcome},
-                risk_level=RiskLevel.LEVEL_1_NON_DESTRUCTIVE
-            )
-        )
-        
-        steps = [step1, step2, step3, step4]
-        
-        # Validate and sort before returning
-        DAGValidator.topological_sort(steps)
-        
-        return ExecutionPlan(
-            plan_id=str(uuid.uuid4()),
-            steps=steps,
-            risk_level=RiskLevel.LEVEL_1_NON_DESTRUCTIVE
-        )
+        return ExecutionPlan(plan_id=str(uuid.uuid4()), steps=[step1], risk_level=RiskLevel.LEVEL_0_READ_ONLY)

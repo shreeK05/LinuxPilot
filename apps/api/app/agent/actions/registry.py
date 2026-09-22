@@ -37,12 +37,48 @@ class TestActionHandler(ActionHandler):
 class UnknownActionError(Exception):
     pass
 
+from app.agent.actions.filesystem_handlers import (
+    FSListDirectoryHandler, FSStatHandler, FSReadFileHandler,
+    FSCreateDirectoryHandler, FSCopyHandler, FSMoveHandler,
+    FSRenameHandler, FSWriteFileHandler, FSDeleteHandler
+)
+from app.adapters.linux.terminal.safe_commands import SafeTerminalCommands
+
+class SystemInfoHandler(ActionHandler):
+    def execute(self, action: ActionDefinition) -> ActionExecutionResult:
+        try:
+            target = action.parameters.get("command")
+            if target == "disk_usage":
+                res = SafeTerminalCommands.get_disk_usage()
+            elif target == "memory_usage":
+                res = SafeTerminalCommands.get_memory_usage()
+            elif target == "cpu_info":
+                res = SafeTerminalCommands.get_cpu_info()
+            else:
+                raise UnknownActionError(f"Unknown system command: {target}")
+            return ActionExecutionResult(success=True, output=res)
+        except Exception as e:
+            return ActionExecutionResult(success=False, output=None, error=str(e))
+
 class ActionRegistry:
     def __init__(self):
         self._handlers: Dict[str, ActionHandler] = {}
         
-        # Register test handlers
-        self.register("filesystem.mock", MockFileActionHandler())
+        # Filesystem
+        self.register("filesystem.list_directory", FSListDirectoryHandler())
+        self.register("filesystem.stat", FSStatHandler())
+        self.register("filesystem.read_file", FSReadFileHandler())
+        self.register("filesystem.create_directory", FSCreateDirectoryHandler())
+        self.register("filesystem.copy", FSCopyHandler())
+        self.register("filesystem.move", FSMoveHandler())
+        self.register("filesystem.rename", FSRenameHandler())
+        self.register("filesystem.write_file", FSWriteFileHandler())
+        self.register("filesystem.delete", FSDeleteHandler())
+        
+        # System
+        self.register("system.info", SystemInfoHandler())
+        
+        # Legacy for old tests
         self.register("test.init", TestActionHandler())
         self.register("test.search", TestActionHandler())
         self.register("test.validate", TestActionHandler())

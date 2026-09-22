@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FC } from 'react';
 import type { Task } from './TaskTable';
+import { ApprovalCenter } from './ApprovalCenter';
 
 interface TaskDetailsProps {
   task: Task;
@@ -69,6 +70,17 @@ export const TaskDetails: FC<TaskDetailsProps> = ({ task, onBack, apiUrl }) => {
           <p className="text-gray-900 font-medium">{task.status}</p>
         </div>
       </div>
+      
+      {task.status === 'WAITING_APPROVAL' && (
+        <ApprovalCenter 
+          taskId={task.id} 
+          apiUrl={apiUrl} 
+          onDecided={() => {
+            alert('Decision recorded. Refreshing...');
+            window.location.reload();
+          }} 
+        />
+      )}
 
       <h3 className="text-lg font-semibold text-gray-800 mb-4">Execution Audit Trail</h3>
       

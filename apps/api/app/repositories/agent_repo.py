@@ -1,14 +1,35 @@
 from sqlalchemy.orm import Session
 from app.models.domain import Task, Plan, PlanStep, Execution, ActionExecution, AuditEvent
-from app.agent.models import AgentState, ExecutionPlan, PlanStep as AgentPlanStep
+from app.agent.models import AgentState, ExecutionPlan, PlanStep as AgentPlanStep, StateTransition, ExecutionContext
 
 def get_task(db: Session, task_id: str) -> Task:
     return db.query(Task).filter(Task.id == task_id).first()
 
 def update_task_state(db: Session, task_id: str, state: AgentState):
-    task = get_task(db, task_id)
+    task = db.query(Task).filter(Task.id == task_id).first()
     if task:
         task.status = state.value
+        db.commit()
+
+def create_approval(db: Session, transition: StateTransition, context: ExecutionContext):
+    from app.models.domain import Approval
+    import uuid
+    # Check if pending already exists to avoid duplicates
+    existing = db.query(Approval).filter(
+        Approval.task_id == context.task_id, 
+        Approval.status == "PENDING"
+    ).first()
+    if not existing:
+        new_approval = Approval(
+            id=str(uuid.uuid4()),
+            task_id=context.task_id,
+            plan_id=context.plan_id,
+            action_id="plan_approval",
+            risk_level=transition.context_data.get("risk_level", 0) if transition.context_data else 0,
+            reason=transition.reason,
+            status="PENDING"
+        )
+        db.add(new_approval)
         db.commit()
 
 def save_plan(db: Session, task_id: str, plan: ExecutionPlan):
