@@ -2,9 +2,10 @@ import os
 import shutil
 import hashlib
 import uuid
+import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 from pydantic import BaseModel, Field
 
 class FileSnapshotRecord(BaseModel):
@@ -12,6 +13,7 @@ class FileSnapshotRecord(BaseModel):
     task_id: str
     action_id: str
     original_path: str
+    resulting_path: Optional[str] = None
     snapshot_path: Optional[str] = None
     original_hash: Optional[str] = None
     size_bytes: int = 0
@@ -19,10 +21,20 @@ class FileSnapshotRecord(BaseModel):
     operation_type: str
     restoration_status: str = "PENDING" # PENDING, RESTORED, FAILED, UNAVAILABLE
 
+class TaskSnapshot(BaseModel):
+    task_id: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    files: list[FileSnapshotRecord] = Field(default_factory=list)
+    status: str = "ACTIVE"
+    rollback_status: Optional[str] = None
+
 class SnapshotManager:
     def __init__(self, snapshot_dir: str = "~/.linuxpilot/snapshots"):
         self.snapshot_dir = Path(snapshot_dir).expanduser().resolve()
         self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        # In-memory mapping of task_id -> TaskSnapshot
+        # In a full system, this goes to the DB.
+        self._task_snapshots: Dict[str, TaskSnapshot] = {}
 
     def _hash_file(self, path: Path) -> str:
         sha256 = hashlib.sha256()
@@ -34,22 +46,40 @@ class SnapshotManager:
         except Exception:
             return "unknown"
 
-    def create_snapshot(self, task_id: str, action_id: str, operation_type: str, file_path: Path) -> FileSnapshotRecord:
+    def get_task_snapshot(self, task_id: str) -> Optional[TaskSnapshot]:
+        return self._task_snapshots.get(task_id)
+
+    def get_or_create_task_snapshot(self, task_id: str) -> TaskSnapshot:
+        if task_id not in self._task_snapshots:
+            self._task_snapshots[task_id] = TaskSnapshot(task_id=task_id)
+        return self._task_snapshots[task_id]
+
+    def create_snapshot(self, task_id: str, action_id: str, operation_type: str, file_path: Path, resulting_path: Path = None) -> FileSnapshotRecord:
         """
         Takes a snapshot of a single file before it is modified or deleted.
+        Throws exception if the snapshot fails, blocking execution.
         """
         record = FileSnapshotRecord(
             task_id=task_id,
             action_id=action_id,
             operation_type=operation_type,
             original_path=str(file_path),
+            resulting_path=str(resulting_path) if resulting_path else None,
             restoration_status="UNAVAILABLE"
         )
         
-        if not file_path.exists() or not file_path.is_file():
-            # If it's a directory or doesn't exist, we can't snapshot it easily in Phase 3
-            # We'll just return a record saying UNAVAILABLE for contents, but we have the path.
+        task_snap = self.get_or_create_task_snapshot(task_id)
+        
+        if operation_type == "CREATE":
+            # For creation, the file doesn't exist yet, we just track that we created it
+            # so rollback can delete it.
+            record.restoration_status = "PENDING"
+            task_snap.files.append(record)
             return record
+
+        if not file_path.exists() or not file_path.is_file():
+            # If we try to mutate a directory or non-existent file, it's not supported by file-copy rollback yet
+            raise RuntimeError(f"Cannot securely snapshot missing or non-file path: {file_path}")
             
         try:
             record.size_bytes = file_path.stat().st_size
@@ -61,7 +91,9 @@ class SnapshotManager:
             record.snapshot_path = str(snapshot_path)
             record.restoration_status = "PENDING"
             
+            task_snap.files.append(record)
         except Exception as e:
             record.restoration_status = f"FAILED: {str(e)}"
+            raise RuntimeError(f"Snapshot creation failed: {str(e)}")
             
         return record

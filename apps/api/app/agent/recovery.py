@@ -23,10 +23,11 @@ class RecoveryEngine:
                 reason=f"Retrying action. Attempt {retry_count + 1} of {allowed_retries}."
             )
             
-        if verification_result and not verification_result.success:
+        # If replanning isn't available or fails, we check rollback eligibility
+        if action.risk_level >= 3 or action.sandbox_config.required:
             return RecoveryDecision(
-                decision=RecoveryDecisionResult.REPLAN,
-                reason="Verification failed after retries. Replanning is required."
+                decision=RecoveryDecisionResult.ROLLBACK,
+                reason="High-risk action failed completely. Rollback required to ensure safe state."
             )
             
         return RecoveryDecision(

@@ -64,7 +64,9 @@ class FSMoveHandler(ActionHandler):
             
             # Snapshot source before moving
             task_id = action.parameters.get("task_id", "unknown_task")
-            snapshot_manager.create_snapshot(task_id, action.action_id, "MOVE", Path(src).expanduser().resolve())
+            src_path = Path(src).expanduser().resolve()
+            dest_path = Path(dest).expanduser().resolve() / src_path.name
+            snapshot_manager.create_snapshot(task_id, action.action_id, "MOVE", src_path, dest_path)
             
             result = fs_adapter.move(src, dest)
             return ActionExecutionResult(success=True, output=result)
@@ -79,7 +81,9 @@ class FSRenameHandler(ActionHandler):
             
             # Snapshot source before rename
             task_id = action.parameters.get("task_id", "unknown_task")
-            snapshot_manager.create_snapshot(task_id, action.action_id, "RENAME", Path(src).expanduser().resolve())
+            src_path = Path(src).expanduser().resolve()
+            dest_path = src_path.parent / dest_name
+            snapshot_manager.create_snapshot(task_id, action.action_id, "RENAME", src_path, dest_path)
             
             result = fs_adapter.rename(src, dest_name)
             return ActionExecutionResult(success=True, output=result)
@@ -94,7 +98,9 @@ class FSWriteFileHandler(ActionHandler):
             
             # Snapshot target before overwriting (if it exists)
             task_id = action.parameters.get("task_id", "unknown_task")
-            snapshot_manager.create_snapshot(task_id, action.action_id, "WRITE", Path(target).expanduser().resolve())
+            target_path = Path(target).expanduser().resolve()
+            op_type = "WRITE" if target_path.exists() else "CREATE"
+            snapshot_manager.create_snapshot(task_id, action.action_id, op_type, target_path)
             
             result = fs_adapter.write_file(target, content)
             return ActionExecutionResult(success=True, output=result)

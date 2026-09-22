@@ -17,19 +17,28 @@ interface AuditEvent {
   payload: any;
 }
 
+import { ChangeViewer } from './ChangeViewer';
+
 export const TaskDetails: FC<TaskDetailsProps> = ({ task, onBack, apiUrl }) => {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [plan, setPlan] = useState<any>(null);
+  const [snapshot, setSnapshot] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isRollingBack, setIsRollingBack] = useState(false);
 
   useEffect(() => {
     Promise.all([
       fetch(`${apiUrl}/tasks/${task.id}/audit`).then(res => res.json()),
-      fetch(`${apiUrl}/tasks/${task.id}/plan`).then(res => res.json())
+      fetch(`${apiUrl}/tasks/${task.id}/plan`).then(res => res.json()),
+      fetch(`${apiUrl}/tasks/${task.id}/snapshot`).then(res => {
+        if (!res.ok) return null;
+        return res.json();
+      }).catch(() => null)
     ])
-    .then(([auditData, planData]) => {
+    .then(([auditData, planData, snapshotData]) => {
       setAuditEvents(auditData);
       setPlan(planData);
+      setSnapshot(snapshotData);
       setLoading(false);
     })
     .catch(err => {
@@ -37,6 +46,21 @@ export const TaskDetails: FC<TaskDetailsProps> = ({ task, onBack, apiUrl }) => {
       setLoading(false);
     });
   }, [apiUrl, task.id]);
+
+  const handleRollback = () => {
+    if (!confirm('Are you sure you want to manually rollback this task?')) return;
+    setIsRollingBack(true);
+    fetch(`${apiUrl}/tasks/${task.id}/rollback`, { method: 'POST' })
+      .then(res => res.json())
+      .then(res => {
+        alert(res.status === 'success' ? 'Rollback successful!' : 'Rollback failed.');
+        window.location.reload();
+      })
+      .catch(err => {
+        alert('Error: ' + err.message);
+        setIsRollingBack(false);
+      });
+  };
 
   const handleExecute = () => {
     fetch(`${apiUrl}/tasks/${task.id}/execute`, { method: 'POST' })
@@ -88,6 +112,14 @@ export const TaskDetails: FC<TaskDetailsProps> = ({ task, onBack, apiUrl }) => {
             alert('Decision recorded. Refreshing...');
             window.location.reload();
           }} 
+        />
+      )}
+
+      {snapshot && (
+        <ChangeViewer 
+          snapshot={snapshot} 
+          onRollback={handleRollback} 
+          isRollingBack={isRollingBack} 
         />
       )}
 

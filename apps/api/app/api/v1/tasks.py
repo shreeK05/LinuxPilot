@@ -238,3 +238,35 @@ def get_task_timeline(task_id: str, db: Session = Depends(get_db)):
         "status": task.status,
         "created_at": task.created_at
     }
+
+@router.get("/{task_id}/snapshot")
+def get_task_snapshot(task_id: str):
+    from app.agent.actions.filesystem_handlers import snapshot_manager
+    snapshot = snapshot_manager.get_task_snapshot(task_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot found for this task")
+    return snapshot.model_dump()
+
+@router.post("/{task_id}/rollback")
+def manual_rollback(task_id: str, db: Session = Depends(get_db)):
+    task = db.query(DBTask).filter(DBTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+        
+    from app.agent.actions.filesystem_handlers import snapshot_manager
+    from app.adapters.linux.filesystem.rollback import RollbackManager
+    
+    snapshot = snapshot_manager.get_task_snapshot(task_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="No snapshot found for this task")
+        
+    update_task_state(db, task_id, AgentState.ROLLING_BACK)
+    
+    rb_manager = RollbackManager()
+    try:
+        res = rb_manager.rollback_task(snapshot)
+        update_task_state(db, task_id, AgentState.FAILED)
+        return {"status": "success", "result": res}
+    except Exception as e:
+        update_task_state(db, task_id, AgentState.FAILED)
+        raise HTTPException(status_code=500, detail=f"Rollback failed: {str(e)}")

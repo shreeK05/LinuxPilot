@@ -206,8 +206,30 @@ class AgentOrchestrator:
                 self._transition(AgentState.REPLANNING, "Replanning required, but no replanner attached yet")
                 self._transition(AgentState.FAILED, "No safe recovery path remains")
                 return False
+            elif recovery_decision.decision == RecoveryDecisionResult.ROLLBACK:
+                self._transition(AgentState.ROLLING_BACK, "Executing task-level rollback.")
+                
+                # Retrieve snapshot and rollback
+                from app.agent.actions.filesystem_handlers import snapshot_manager
+                from app.adapters.linux.filesystem.rollback import RollbackManager
+                
+                task_snapshot = snapshot_manager.get_task_snapshot(self.task.id)
+                if not task_snapshot:
+                    self._audit("ROLLBACK_FAILED", "FAILED", {"error": "No task snapshot found to rollback."})
+                    self._transition(AgentState.FAILED, "Rollback failed due to missing snapshot.")
+                    return False
+                    
+                rb_manager = RollbackManager()
+                try:
+                    res = rb_manager.rollback_task(task_snapshot)
+                    self._audit("ROLLBACK_COMPLETED", "SUCCESS", res)
+                    self._transition(AgentState.FAILED, "Safely rolled back. Task execution aborted.")
+                except Exception as e:
+                    self._audit("ROLLBACK_FAILED", "FAILED", {"error": str(e)})
+                    self._transition(AgentState.FAILED, "CRITICAL: Rollback failed. System state may be unsafe.")
+                return False
             else:
-                # FAIL, ROLLBACK, ASK_USER -> Abort step
+                # FAIL, ASK_USER -> Abort step
                 self._transition(AgentState.FAILED, "No safe recovery path remains")
                 return False
 
