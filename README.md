@@ -4,10 +4,15 @@ A high-end, production-style, self-hosted Linux desktop AI agent.
 Built with a free-tier/open-source-first architecture.
 
 ## Architecture
-- **Frontend**: React, Vite, TypeScript, TailwindCSS
-- **Backend**: FastAPI, Pydantic, SQLAlchemy, Alembic
-- **Database**: PostgreSQL
-- **Security Boundaries**: Namespaces, cgroups, seccomp, snapshots (planned in later phases)
+
+The project strictly follows a phased architecture to prevent LLM hallucination mapping directly to OS execution:
+
+1. **State Machine Driven**: All execution follows explicit states (UNDERSTANDING -> PLANNING -> POLICY -> EXECUTING).
+2. **DAG Planner**: Complex goals are separated into Directed Acyclic Graphs with topological sorting.
+3. **Policy Engine Gatekeeper**: Actions are evaluated against Risk Levels before any execution occurs.
+4. **Decoupled Orchestrator**: The central agent lifecycle exists entirely independent of FastAPI routes.
+
+*See `docs/architecture/agent-core.md` for a comprehensive architecture overview.*
 
 ## Setup Instructions
 

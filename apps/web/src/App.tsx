@@ -1,17 +1,13 @@
 import { useEffect, useState } from 'react'
+import { TaskTable } from './components/TaskTable'
+import type { Task } from './components/TaskTable'
+import { TaskDetails } from './components/TaskDetails'
 import './App.css'
-
-interface Task {
-  id: string
-  goal: string
-  status: string
-  risk_level: number
-  created_at: string
-}
 
 function App() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [health, setHealth] = useState<string>("Checking...")
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
 
@@ -37,19 +33,21 @@ function App() {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ goal: 'New test task from Dashboard', risk_level: 0 })
+      body: JSON.stringify({ goal: 'Find all PDF files in my Downloads folder', risk_level: 1 })
     })
     .then(res => res.json())
     .then(() => fetchTasks())
   }
 
+  const selectedTask = tasks.find(t => t.id === selectedTaskId)
+
   return (
     <div className="min-h-screen bg-gray-100 p-8 w-full">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         <header className="mb-8 flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">LinuxPilot Dashboard</h1>
-            <p className="text-gray-500">High-End Production Architecture</p>
+            <p className="text-gray-500">Agent Core Architecture - Phase 2</p>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-600">API Status:</span>
@@ -59,58 +57,26 @@ function App() {
           </div>
         </header>
 
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold text-gray-800">Active Tasks</h2>
-            <button 
-              onClick={createTask}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium transition-colors"
-            >
-              + Create Test Task
-            </button>
+        {selectedTask ? (
+          <TaskDetails 
+            task={selectedTask} 
+            onBack={() => setSelectedTaskId(null)} 
+            apiUrl={apiUrl} 
+          />
+        ) : (
+          <div className="bg-white rounded-lg shadow p-6 mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">Active Tasks</h2>
+              <button 
+                onClick={createTask}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium transition-colors"
+              >
+                + Create Goal
+              </button>
+            </div>
+            <TaskTable tasks={tasks} onSelectTask={setSelectedTaskId} />
           </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-gray-200 text-gray-600 text-sm">
-                  <th className="pb-3 pr-4 font-medium">Task ID</th>
-                  <th className="pb-3 pr-4 font-medium">Goal</th>
-                  <th className="pb-3 pr-4 font-medium">Status</th>
-                  <th className="pb-3 font-medium">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tasks.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-8 text-center text-gray-500">
-                      No tasks found. Create one to get started.
-                    </td>
-                  </tr>
-                ) : (
-                  tasks.map(task => (
-                    <tr key={task.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-3 pr-4 text-xs font-mono text-gray-500">
-                        {task.id.split('-')[0]}
-                      </td>
-                      <td className="py-3 pr-4 font-medium text-gray-900">
-                        {task.goal}
-                      </td>
-                      <td className="py-3 pr-4">
-                        <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">
-                          {task.status}
-                        </span>
-                      </td>
-                      <td className="py-3 text-sm text-gray-500">
-                        {new Date(task.created_at).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   )
