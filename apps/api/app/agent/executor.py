@@ -33,13 +33,21 @@ class ExecutionEngine:
 
         # 3. Execute
         # In a real engine, we'd run this asynchronously with a timeout.
-        # For Phase 2, we execute synchronously.
+        # For Phase 2/6, we execute synchronously.
         start_time = time.time()
-        try:
-            result = handler.execute(action)
-            # Timeout check (simulated)
+        
+        def _run_handler():
+            res = handler.execute(action)
             if time.time() - start_time > action.timeout_seconds:
                 return ActionExecutionResult(success=False, output=None, error="Action timed out")
-            return result
+            return res
+            
+        try:
+            if action.sandbox_config.required:
+                from app.agent.sandbox.manager import SandboxManager
+                sandbox = SandboxManager()
+                return sandbox.execute_in_sandbox(action, _run_handler)
+            else:
+                return _run_handler()
         except Exception as e:
             return ActionExecutionResult(success=False, output=None, error=f"Execution exception: {str(e)}")

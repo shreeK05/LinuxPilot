@@ -46,13 +46,28 @@ class PolicyEngine:
             )
             
         if risk_level >= RiskLevel.LEVEL_3_HIGH_IMPACT:
+            if not action.sandbox_config.required:
+                return PolicyDecision(
+                    decision=PolicyDecisionResult.BLOCK,
+                    reason="High impact actions MUST be configured to run in a sandbox.",
+                    risk_level=risk_level
+                )
+                
             return PolicyDecision(
                 decision=PolicyDecisionResult.REQUIRE_SNAPSHOT,
-                reason="High impact action requires a system snapshot before execution.",
+                reason="High impact action requires a system snapshot and sandbox before execution.",
                 risk_level=risk_level
             )
             
         if risk_level >= RiskLevel.LEVEL_2_MODIFY:
+            # Check if sandbox is requested but somehow missing limits (as an example of sandbox policy)
+            if action.sandbox_config.required and not (action.sandbox_config.cpu_limit_shares or action.sandbox_config.memory_limit_mb):
+                return PolicyDecision(
+                    decision=PolicyDecisionResult.BLOCK,
+                    reason="Sandboxed actions must specify resource limits.",
+                    risk_level=risk_level
+                )
+                
             return PolicyDecision(
                 decision=PolicyDecisionResult.REQUIRE_APPROVAL,
                 reason="Modifying action requires explicit user approval.",

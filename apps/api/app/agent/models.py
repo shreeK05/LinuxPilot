@@ -67,6 +67,13 @@ class GoalUnderstanding(BaseModel):
     risk_assessment: str
     required_permissions: List[str] = Field(default_factory=list)
     relevant_context: str = ""
+class SandboxConfig(BaseModel):
+    required: bool = False
+    cpu_limit_shares: Optional[int] = None
+    memory_limit_mb: Optional[int] = None
+    network_allowed: bool = False
+    allowed_mounts: List[str] = Field(default_factory=list)
+
 class ActionDefinition(BaseModel):
     action_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     action_type: str
@@ -76,6 +83,7 @@ class ActionDefinition(BaseModel):
     retry_policy: int = 0
     expected_result: Optional[str] = None
     verification_requirements: Optional[Dict[str, Any]] = None
+    sandbox_config: SandboxConfig = Field(default_factory=SandboxConfig)
 
 class PlanStep(BaseModel):
     step_id: str
