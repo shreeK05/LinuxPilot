@@ -23,6 +23,11 @@ app.include_router(tasks.router, prefix=f"{settings.API_V1_STR}/tasks", tags=["t
 from app.api.v1 import dashboard
 app.include_router(dashboard.router, prefix=f"{settings.API_V1_STR}/dashboard", tags=["dashboard"])
 
+from app.core import metrics  # Initialize prometheus metrics
+from prometheus_client import make_asgi_app
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Application starting up")

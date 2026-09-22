@@ -26,15 +26,74 @@ def run_agent_lifecycle(task_id: str, goal: str):
     
     db = SessionLocal()
     try:
+        from app.core.logging import log_event
+        from app.core.metrics import (
+            TASKS_COMPLETED, TASKS_FAILED, TASK_DURATION, 
+            STEP_LATENCY, STEP_VERIFICATION_FAILURES, STEP_RETRIES, 
+            STEP_REPLANS, STEP_ROLLBACKS, APPROVAL_WAITS, SANDBOX_VIOLATIONS,
+            ACTIVE_TASKS
+        )
+        import time
+
+        start_time = time.time()
+
         # State change callback
         def on_state_change(transition, ctx):
             update_task_state(db, ctx.task_id, transition.to_state)
-            if transition.to_state == AgentState.WAITING_APPROVAL:
+            
+            # Update metrics
+            ACTIVE_TASKS.labels(status=transition.to_state.value).inc()
+            if transition.from_state:
+                ACTIVE_TASKS.labels(status=transition.from_state.value).dec()
+                
+            if transition.to_state == AgentState.COMPLETED:
+                TASKS_COMPLETED.inc()
+                TASK_DURATION.observe(time.time() - start_time)
+            elif transition.to_state == AgentState.FAILED:
+                TASKS_FAILED.inc()
+            elif transition.to_state == AgentState.WAITING_APPROVAL:
+                APPROVAL_WAITS.inc()
                 create_approval(db, transition, ctx)
+            elif transition.to_state == AgentState.REPLANNING:
+                STEP_REPLANS.inc()
+            elif transition.to_state == AgentState.RETRYING:
+                STEP_RETRIES.inc()
+            elif transition.to_state == AgentState.ROLLING_BACK:
+                STEP_ROLLBACKS.inc()
+            
+            log_event(
+                event_type="STATE_TRANSITION",
+                status="SUCCESS",
+                component="orchestrator",
+                task_id=ctx.task_id,
+                message=f"Transitioned to {transition.to_state.value}"
+            )
             
         # Audit callback
         def on_audit_event(event_type, status, metadata, ctx):
             log_audit_event(db, ctx.task_id, event_type, status, metadata)
+            
+            if event_type == "VERIFICATION_COMPLETED" and status == "FAILED":
+                STEP_VERIFICATION_FAILURES.inc()
+            if event_type == "POLICY_EVALUATION" and status == "BLOCKED":
+                if metadata.get("reason", "").lower().find("sandbox") != -1:
+                    SANDBOX_VIOLATIONS.inc()
+            if event_type == "ACTION_EXECUTED" and status == "SUCCESS":
+                latency = metadata.get("latency_ms", 0)
+                action = metadata.get("action", "unknown")
+                if latency:
+                    STEP_LATENCY.labels(action_type=action).observe(latency / 1000.0)
+                    
+            log_event(
+                event_type=event_type,
+                status=status,
+                component="agent",
+                task_id=ctx.task_id,
+                step_id=metadata.get("step_id"),
+                action=metadata.get("action"),
+                latency_ms=metadata.get("latency_ms"),
+                payload=metadata
+            )
 
         from app.agent.llm.provider import get_llm_provider
         from app.agent.goal_understanding import LLMGoalInterpreter
@@ -118,17 +177,71 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
     from app.models.domain import Task, Plan
     from app.repositories.agent_repo import update_task_state, create_approval, save_plan, log_audit_event
     from datetime import datetime
+    from app.core.logging import log_event
+    from app.core.metrics import (
+        TASKS_COMPLETED, TASKS_FAILED, TASK_DURATION, 
+        STEP_LATENCY, STEP_VERIFICATION_FAILURES, STEP_RETRIES, 
+        STEP_REPLANS, STEP_ROLLBACKS, APPROVAL_WAITS, SANDBOX_VIOLATIONS,
+        ACTIVE_TASKS
+    )
+    import time
     db = SessionLocal()
+    start_time = time.time()
     try:
         class AgentRepository:
             def __init__(self, db_session):
                 self.db = db_session
             def save_state_transition(self, transition, ctx):
                 update_task_state(self.db, ctx.task_id, transition.to_state)
-                if transition.to_state == AgentState.WAITING_APPROVAL:
+                ACTIVE_TASKS.labels(status=transition.to_state.value).inc()
+                if transition.from_state:
+                    ACTIVE_TASKS.labels(status=transition.from_state.value).dec()
+                
+                if transition.to_state == AgentState.COMPLETED:
+                    TASKS_COMPLETED.inc()
+                    TASK_DURATION.observe(time.time() - start_time)
+                elif transition.to_state == AgentState.FAILED:
+                    TASKS_FAILED.inc()
+                elif transition.to_state == AgentState.WAITING_APPROVAL:
+                    APPROVAL_WAITS.inc()
                     create_approval(self.db, transition, ctx)
+                elif transition.to_state == AgentState.REPLANNING:
+                    STEP_REPLANS.inc()
+                elif transition.to_state == AgentState.RETRYING:
+                    STEP_RETRIES.inc()
+                elif transition.to_state == AgentState.ROLLING_BACK:
+                    STEP_ROLLBACKS.inc()
+                    
+                log_event(
+                    event_type="STATE_TRANSITION",
+                    status="SUCCESS",
+                    component="orchestrator",
+                    task_id=ctx.task_id,
+                    message=f"Transitioned to {transition.to_state.value}"
+                )
             def save_audit_event(self, event_type, status, metadata, ctx):
                 log_audit_event(self.db, ctx.task_id, event_type, status, metadata)
+                if event_type == "VERIFICATION_COMPLETED" and status == "FAILED":
+                    STEP_VERIFICATION_FAILURES.inc()
+                if event_type == "POLICY_EVALUATION" and status == "BLOCKED":
+                    if metadata.get("reason", "").lower().find("sandbox") != -1:
+                        SANDBOX_VIOLATIONS.inc()
+                if event_type == "ACTION_EXECUTED" and status == "SUCCESS":
+                    latency = metadata.get("latency_ms", 0)
+                    action = metadata.get("action", "unknown")
+                    if latency:
+                        STEP_LATENCY.labels(action_type=action).observe(latency / 1000.0)
+                        
+                log_event(
+                    event_type=event_type,
+                    status=status,
+                    component="agent",
+                    task_id=ctx.task_id,
+                    step_id=metadata.get("step_id"),
+                    action=metadata.get("action"),
+                    latency_ms=metadata.get("latency_ms"),
+                    payload=metadata
+                )
 
         repo = AgentRepository(db)
         
