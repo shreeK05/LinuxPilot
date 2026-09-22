@@ -35,7 +35,7 @@ export const TaskDetails: FC<TaskDetailsProps> = ({ task, onBack, apiUrl }) => {
     .catch(err => {
       console.error(err);
     });
-  }, [apiUrl, task.id]);
+  }, [apiUrl, task.id, task.status]);
 
   const handleRollback = () => {
     if (!confirm('Are you sure you want to manually rollback this task?')) return;

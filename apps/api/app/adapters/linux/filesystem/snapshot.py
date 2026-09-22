@@ -77,9 +77,16 @@ class SnapshotManager:
             task_snap.files.append(record)
             return record
 
-        if not file_path.exists() or not file_path.is_file():
-            # If we try to mutate a directory or non-existent file, it's not supported by file-copy rollback yet
-            raise RuntimeError(f"Cannot securely snapshot missing or non-file path: {file_path}")
+        if not file_path.exists():
+            raise RuntimeError(f"Cannot snapshot non-existent path: {file_path}")
+
+        if file_path.is_dir():
+            # Directories cannot be backed up via file-copy.
+            # Record metadata-only snapshot so RENAME/MOVE can still be tracked for rollback.
+            record.restoration_status = "METADATA_ONLY"
+            task_snap.files.append(record)
+            return record
+
             
         try:
             record.size_bytes = file_path.stat().st_size

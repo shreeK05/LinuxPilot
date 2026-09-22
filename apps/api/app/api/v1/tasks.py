@@ -23,13 +23,13 @@ router = APIRouter()
 def run_agent_lifecycle(task_id: str, goal: str):
     # Setup context
     context = ExecutionContext(task_id=task_id)
-    
+
     db = SessionLocal()
     try:
         from app.core.logging import log_event
         from app.core.metrics import (
-            TASKS_COMPLETED, TASKS_FAILED, TASK_DURATION, 
-            STEP_LATENCY, STEP_VERIFICATION_FAILURES, STEP_RETRIES, 
+            TASKS_COMPLETED, TASKS_FAILED, TASK_DURATION,
+            STEP_LATENCY, STEP_VERIFICATION_FAILURES, STEP_RETRIES,
             STEP_REPLANS, STEP_ROLLBACKS, APPROVAL_WAITS, SANDBOX_VIOLATIONS,
             ACTIVE_TASKS
         )
@@ -40,12 +40,12 @@ def run_agent_lifecycle(task_id: str, goal: str):
         # State change callback
         def on_state_change(transition, ctx):
             update_task_state(db, ctx.task_id, transition.to_state)
-            
+
             # Update metrics
             ACTIVE_TASKS.labels(status=transition.to_state.value).inc()
             if transition.from_state:
                 ACTIVE_TASKS.labels(status=transition.from_state.value).dec()
-                
+
             if transition.to_state == AgentState.COMPLETED:
                 TASKS_COMPLETED.inc()
                 TASK_DURATION.observe(time.time() - start_time)
@@ -60,7 +60,7 @@ def run_agent_lifecycle(task_id: str, goal: str):
                 STEP_RETRIES.inc()
             elif transition.to_state == AgentState.ROLLING_BACK:
                 STEP_ROLLBACKS.inc()
-            
+
             log_event(
                 event_type="STATE_TRANSITION",
                 status="SUCCESS",
@@ -68,11 +68,11 @@ def run_agent_lifecycle(task_id: str, goal: str):
                 task_id=ctx.task_id,
                 message=f"Transitioned to {transition.to_state.value}"
             )
-            
+
         # Audit callback
         def on_audit_event(event_type, status, metadata, ctx):
             log_audit_event(db, ctx.task_id, event_type, status, metadata)
-            
+
             if event_type == "VERIFICATION_COMPLETED" and status == "FAILED":
                 STEP_VERIFICATION_FAILURES.inc()
             if event_type == "POLICY_EVALUATION" and status == "BLOCKED":
@@ -83,7 +83,7 @@ def run_agent_lifecycle(task_id: str, goal: str):
                 action = metadata.get("action", "unknown")
                 if latency:
                     STEP_LATENCY.labels(action_type=action).observe(latency / 1000.0)
-                    
+
             log_event(
                 event_type=event_type,
                 status=status,
@@ -96,17 +96,24 @@ def run_agent_lifecycle(task_id: str, goal: str):
             )
 
         from app.agent.llm.provider import get_llm_provider
-        from app.agent.goal_understanding import LLMGoalInterpreter
-        from app.agent.planner import LLMPlanner
-        from app.agent.verifier import VerificationEngine
-        
+        from app.agent.goal_understanding import LLMGoalInterpreter, DeterministicGoalInterpreter
+        from app.agent.planner import LLMPlanner, DeterministicPlanner
+        from app.agent.verifier import VerificationEngine, DeterministicVerifier
+        import os
+
         provider = get_llm_provider()
-        interpreter = LLMGoalInterpreter(provider)
-        planner = LLMPlanner(provider, action_registry)
-        
+
+        if os.getenv("LLM_PROVIDER", "mock").lower() == "mock":
+            interpreter = DeterministicGoalInterpreter()
+            planner = DeterministicPlanner()
+            verifier = DeterministicVerifier()
+        else:
+            interpreter = LLMGoalInterpreter(provider)
+            planner = LLMPlanner(provider, action_registry)
+            verifier = VerificationEngine(provider)
+
         policy_engine = PolicyEngine()
         execution_engine = ExecutionEngine(action_registry, policy_engine)
-        verifier = VerificationEngine(provider)
         recovery_engine = RecoveryEngine()
 
         orchestrator = AgentOrchestrator(
@@ -120,7 +127,7 @@ def run_agent_lifecycle(task_id: str, goal: str):
             on_state_change=on_state_change,
             on_audit_event=on_audit_event
         )
-        
+
         original_create_plan = orchestrator.planner.create_plan
         def intercepted_create_plan(goal_under):
             plan = original_create_plan(goal_under)
@@ -179,8 +186,8 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
     from datetime import datetime
     from app.core.logging import log_event
     from app.core.metrics import (
-        TASKS_COMPLETED, TASKS_FAILED, TASK_DURATION, 
-        STEP_LATENCY, STEP_VERIFICATION_FAILURES, STEP_RETRIES, 
+        TASKS_COMPLETED, TASKS_FAILED, TASK_DURATION,
+        STEP_LATENCY, STEP_VERIFICATION_FAILURES, STEP_RETRIES,
         STEP_REPLANS, STEP_ROLLBACKS, APPROVAL_WAITS, SANDBOX_VIOLATIONS,
         ACTIVE_TASKS
     )
@@ -196,7 +203,7 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
                 ACTIVE_TASKS.labels(status=transition.to_state.value).inc()
                 if transition.from_state:
                     ACTIVE_TASKS.labels(status=transition.from_state.value).dec()
-                
+
                 if transition.to_state == AgentState.COMPLETED:
                     TASKS_COMPLETED.inc()
                     TASK_DURATION.observe(time.time() - start_time)
@@ -211,7 +218,7 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
                     STEP_RETRIES.inc()
                 elif transition.to_state == AgentState.ROLLING_BACK:
                     STEP_ROLLBACKS.inc()
-                    
+
                 log_event(
                     event_type="STATE_TRANSITION",
                     status="SUCCESS",
@@ -231,7 +238,7 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
                     action = metadata.get("action", "unknown")
                     if latency:
                         STEP_LATENCY.labels(action_type=action).observe(latency / 1000.0)
-                        
+
                 log_event(
                     event_type=event_type,
                     status=status,
@@ -244,21 +251,21 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
                 )
 
         repo = AgentRepository(db)
-        
+
         task = db.query(Task).filter(Task.id == task_id).first()
         plan_model = db.query(Plan).filter(Plan.task_id == task_id).first()
-        
+
         context = ExecutionContext(task_id=task_id, plan_id=plan_model.id if plan_model else None)
-        
+
         registry = action_registry
         policy = PolicyEngine()
         from app.agent.executor import ExecutionEngine
         from app.agent.verifier import VerificationEngine
         from app.agent.recovery import RecoveryEngine
         from app.agent.llm.provider import get_llm_provider
-        
+
         provider = get_llm_provider()
-        
+
         orchestrator = AgentOrchestrator(
             context=context,
             interpreter=DeterministicGoalInterpreter(),
@@ -270,10 +277,10 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
             on_state_change=lambda t, c: repo.save_state_transition(t, c),
             on_audit_event=lambda e, s, m, c: repo.save_audit_event(e, s, m, c)
         )
-        
+
         # We manually set state to WAITING_APPROVAL
         orchestrator.state_machine.current_state = AgentState.WAITING_APPROVAL
-        
+
         # Rehydrate plan
         if plan_model:
             from app.agent.models import ExecutionPlan, PlanStep as AgentPlanStep, ActionDefinition
@@ -282,14 +289,14 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
                 action = ActionDefinition(action_type=smodel.action_type, parameters=smodel.parameters, risk_level=smodel.risk_level)
                 steps.append(AgentPlanStep(step_id=smodel.id, name=smodel.name, action=action, dependencies=smodel.dependencies))
             orchestrator.plan = ExecutionPlan(plan_id=plan_model.id, steps=steps)
-            
+
         orchestrator.resume_from_approval(approved, reason)
     finally:
         db.close()
 
 @router.get("/", response_model=List[TaskResponse])
 def get_tasks(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    tasks = db.query(DBTask).offset(skip).limit(limit).all()
+    tasks = db.query(DBTask).order_by(DBTask.created_at.desc()).offset(skip).limit(limit).all()
     return tasks
 
 @router.post("/{task_id}/execute")
@@ -297,13 +304,13 @@ def execute_task(task_id: str, background_tasks: BackgroundTasks, db: Session = 
     task = db.query(DBTask).filter(DBTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-        
+
     if task.status not in [AgentState.IDLE.value, AgentState.FAILED.value, AgentState.CANCELLED.value]:
         raise HTTPException(status_code=400, detail="Task is already executing or completed")
-        
+
     # Queue background task to not block API
-    background_tasks.add_task(run_agent_lifecycle, task_id, task.goal, db)
-    
+    background_tasks.add_task(run_agent_lifecycle, task_id, task.goal)
+
     return {"message": "Execution started", "task_id": task_id}
 
 @router.get("/{task_id}/audit")
@@ -317,7 +324,7 @@ def get_task_plan(task_id: str, db: Session = Depends(get_db)):
     plan_model = db.query(Plan).filter(Plan.task_id == task_id).order_by(Plan.version.desc()).first()
     if not plan_model:
         return None
-        
+
     steps = []
     max_risk = 0
     for s in plan_model.steps:
@@ -333,7 +340,7 @@ def get_task_plan(task_id: str, db: Session = Depends(get_db)):
         })
         if s.risk_level > max_risk:
             max_risk = s.risk_level
-            
+
     return {
         "plan_id": plan_model.id,
         "version": plan_model.version,
@@ -347,7 +354,7 @@ def get_task_timeline(task_id: str, db: Session = Depends(get_db)):
     task = db.query(DBTask).filter(DBTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     return {
         "task_id": task_id,
         "status": task.status,
@@ -367,16 +374,16 @@ def manual_rollback(task_id: str, db: Session = Depends(get_db)):
     task = db.query(DBTask).filter(DBTask.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-        
+
     from app.agent.actions.filesystem_handlers import snapshot_manager
     from app.adapters.linux.filesystem.rollback import RollbackManager
-    
+
     snapshot = snapshot_manager.get_task_snapshot(task_id)
     if not snapshot:
         raise HTTPException(status_code=404, detail="No snapshot found for this task")
-        
+
     update_task_state(db, task_id, AgentState.ROLLING_BACK)
-    
+
     rb_manager = RollbackManager()
     try:
         res = rb_manager.rollback_task(snapshot)

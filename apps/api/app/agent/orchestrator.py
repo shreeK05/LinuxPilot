@@ -119,7 +119,6 @@ class AgentOrchestrator:
         try:
             if approved:
                 self._audit("APPROVAL_GRANTED", "SUCCESS", {"reason": reason})
-                self._transition(AgentState.READY, "Approval granted")
                 self._run_policy_and_execute_loop(skip_policy_check=True)
             else:
                 self._audit("APPROVAL_REJECTED", "FAILED", {"reason": reason})
@@ -260,6 +259,7 @@ class AgentOrchestrator:
             import copy
             action_to_execute = copy.deepcopy(step.action)
             action_to_execute.parameters = interpolated_params
+            action_to_execute.parameters["task_id"] = self.context.task_id
 
             # 1. Execute Action
             result = self.execution_engine.execute_action(action_to_execute)
