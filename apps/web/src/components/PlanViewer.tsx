@@ -15,6 +15,8 @@ interface PlanStep {
 
 interface ExecutionPlan {
   plan_id: string;
+  version?: number;
+  replan_count?: number;
   steps: PlanStep[];
   risk_level: number;
 }
@@ -56,13 +58,19 @@ export const PlanViewer: FC<PlanViewerProps> = ({ plan }) => {
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="font-semibold text-gray-800">Execution Plan DAG</h3>
-        <span className={`text-xs px-2 py-1 rounded font-medium ${getRiskColor(plan.risk_level)}`}>
+      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        <div>
+            <h3 className="font-semibold text-gray-800">Execution Plan DAG</h3>
+            {(plan.version !== undefined && plan.version > 1) && (
+              <span className="text-sm font-medium text-purple-600 ml-0 sm:ml-2">
+                Version {plan.version} (Replans: {plan.replan_count}/2)
+              </span>
+            )}
+        </div>
+        <span className={`px-2 py-1 rounded text-xs font-medium ${getRiskColor(plan.risk_level)}`}>
           Max Risk: {getRiskLabel(plan.risk_level)}
         </span>
       </div>
-      
       <div className="p-4 space-y-4">
         {plan.steps.map((step, idx) => (
           <div key={step.step_id} className="relative pl-8">

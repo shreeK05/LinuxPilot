@@ -201,7 +201,7 @@ def get_task_audit(task_id: str, db: Session = Depends(get_db)):
 @router.get("/{task_id}/plan")
 def get_task_plan(task_id: str, db: Session = Depends(get_db)):
     from app.models.domain import Plan
-    plan_model = db.query(Plan).filter(Plan.task_id == task_id).first()
+    plan_model = db.query(Plan).filter(Plan.task_id == task_id).order_by(Plan.version.desc()).first()
     if not plan_model:
         return None
         
@@ -223,6 +223,8 @@ def get_task_plan(task_id: str, db: Session = Depends(get_db)):
             
     return {
         "plan_id": plan_model.id,
+        "version": plan_model.version,
+        "replan_count": max(0, plan_model.version - 1),
         "risk_level": max_risk,
         "steps": steps
     }

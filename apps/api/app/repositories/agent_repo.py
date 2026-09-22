@@ -34,7 +34,20 @@ def create_approval(db: Session, transition: StateTransition, context: Execution
         db.commit()
 
 def save_plan(db: Session, task_id: str, plan: ExecutionPlan):
-    db_plan = Plan(id=plan.plan_id, task_id=task_id)
+    # Archive previous active plans for this task and find max version
+    previous_plans = db.query(Plan).filter(Plan.task_id == task_id, Plan.status == "ACTIVE").all()
+    max_version = 0
+    
+    # Get highest version
+    all_plans = db.query(Plan).filter(Plan.task_id == task_id).all()
+    for p in all_plans:
+        if p.version > max_version:
+            max_version = p.version
+            
+    for p in previous_plans:
+        p.status = "ARCHIVED"
+        
+    db_plan = Plan(id=plan.plan_id, task_id=task_id, version=max_version + 1, status="ACTIVE")
     db.add(db_plan)
     
     for i, step in enumerate(plan.steps):

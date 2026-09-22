@@ -50,6 +50,8 @@ class AgentOrchestrator:
         # State tracking for execution
         self.current_step_index = 0
         self.action_retries: Dict[str, int] = {}
+        self.replan_count = 0
+        self.max_replans = 2
 
     def _transition(self, to_state: AgentState, reason: str = None, context_data: dict = None):
         transition = self.state_machine.transition_to(to_state, reason, context_data)
@@ -97,32 +99,10 @@ class AgentOrchestrator:
                     logger.warning(f"Plan creation failed, retrying (attempt {attempt+1}): {e}")
             
             self.context.plan_id = self.plan.plan_id
+            self.context.plan_id = self.plan.plan_id
             self._audit("PLAN_CREATED", "SUCCESS", {"plan_id": self.plan.plan_id, "steps_count": len(self.plan.steps)})
             
-            # 3. POLICY CHECK
-            self._transition(AgentState.POLICY_CHECK, "Evaluating plan against policy")
-            
-            max_risk_decision = None
-            for step in self.plan.steps:
-                decision = self.policy_engine.evaluate(step.action)
-                if not max_risk_decision or decision.risk_level > max_risk_decision.risk_level:
-                    max_risk_decision = decision
-                    
-            if max_risk_decision and max_risk_decision.decision == PolicyDecisionResult.BLOCK:
-                self._audit("POLICY_CHECKED", "FAILED", max_risk_decision.model_dump())
-                self._transition(AgentState.FAILED, f"Plan blocked by policy: {max_risk_decision.reason}")
-                return
-                
-            self._audit("POLICY_CHECKED", "SUCCESS", max_risk_decision.model_dump() if max_risk_decision else {})
-            
-            if max_risk_decision and max_risk_decision.decision in [PolicyDecisionResult.REQUIRE_APPROVAL, PolicyDecisionResult.REQUIRE_SNAPSHOT]:
-                self._transition(AgentState.WAITING_APPROVAL, f"Waiting for approval: {max_risk_decision.reason}", max_risk_decision.model_dump())
-                # In Phase 3, we pause here. The caller will persist the state and wait for API interaction.
-                return
-
-            # 4. EXECUTION LOOP
-            self._transition(AgentState.READY, "Ready for execution")
-            self._execute_plan()
+            self._run_policy_and_execute_loop()
             
         except Exception as e:
             logger.exception("Agent lifecycle failed")
@@ -139,7 +119,7 @@ class AgentOrchestrator:
             if approved:
                 self._audit("APPROVAL_GRANTED", "SUCCESS", {"reason": reason})
                 self._transition(AgentState.READY, "Approval granted")
-                self._execute_plan()
+                self._run_policy_and_execute_loop(skip_policy_check=True)
             else:
                 self._audit("APPROVAL_REJECTED", "FAILED", {"reason": reason})
                 self._transition(AgentState.FAILED, f"Task rejected by user: {reason}")
@@ -148,6 +128,40 @@ class AgentOrchestrator:
             if not self.state_machine.is_terminal():
                 self._transition(AgentState.FAILED, f"Unexpected error during resume: {str(e)}")
             self._audit("TASK_FAILED", "FAILED", {"error": str(e)})
+
+    def _run_policy_and_execute_loop(self, skip_policy_check: bool = False):
+        while True:
+            if not skip_policy_check:
+                # 3. POLICY CHECK
+                self._transition(AgentState.POLICY_CHECK, "Evaluating plan against policy")
+                
+                max_risk_decision = None
+                for step in self.plan.steps:
+                    decision = self.policy_engine.evaluate(step.action)
+                    if not max_risk_decision or decision.risk_level > max_risk_decision.risk_level:
+                        max_risk_decision = decision
+                        
+                if max_risk_decision and max_risk_decision.decision == PolicyDecisionResult.BLOCK:
+                    self._audit("POLICY_CHECKED", "FAILED", max_risk_decision.model_dump())
+                    self._transition(AgentState.FAILED, f"Plan blocked by policy: {max_risk_decision.reason}")
+                    return
+                    
+                self._audit("POLICY_CHECKED", "SUCCESS", max_risk_decision.model_dump() if max_risk_decision else {})
+                
+                if max_risk_decision and max_risk_decision.decision in [PolicyDecisionResult.REQUIRE_APPROVAL, PolicyDecisionResult.REQUIRE_SNAPSHOT]:
+                    self._transition(AgentState.WAITING_APPROVAL, f"Waiting for approval: {max_risk_decision.reason}", max_risk_decision.model_dump())
+                    return
+
+            skip_policy_check = False # Only skip first iteration if approved
+
+            # 4. EXECUTION LOOP
+            self._transition(AgentState.READY, "Ready for execution")
+            self._execute_plan()
+            
+            if self.state_machine.current_state == AgentState.REPLANNING:
+                # Plan was regenerated, loop back to POLICY_CHECK
+                continue
+            break
 
     def _execute_plan(self):
         self._transition(AgentState.EXECUTING, "Starting plan execution")
@@ -160,6 +174,10 @@ class AgentOrchestrator:
             success = self._execute_step_with_recovery(step)
             
             if not success:
+                if self.state_machine.current_state == AgentState.REPLANNING:
+                    # Replanning successful, break execution loop to go back to policy check
+                    return
+                    
                 # Recovery failed or max retries exceeded
                 if not self.state_machine.is_terminal():
                     self._transition(AgentState.FAILED, f"Failed at step {step.step_id}")
@@ -193,27 +211,75 @@ class AgentOrchestrator:
                     return True
                 else:
                     self._audit("VERIFICATION_COMPLETED", "FAILED", verification.model_dump())
-                    recovery_decision = self._handle_recovery(step, verification.error, verification)
+                    current_error = verification.error
+                    current_verification = verification
+                    recovery_decision = self._handle_recovery(step, current_error, current_verification)
             else:
                 self._audit("ACTION_FAILED", "FAILED", {"step_id": step.step_id, "error": result.error})
-                recovery_decision = self._handle_recovery(step, result.error)
+                current_error = result.error
+                current_verification = None
+                recovery_decision = self._handle_recovery(step, current_error)
                 
             # Process recovery decision
             if recovery_decision.decision == RecoveryDecisionResult.RETRY:
                 self._transition(AgentState.RETRYING, f"Retrying step {step.step_id}: {recovery_decision.reason}")
                 # Loop continues to retry
             elif recovery_decision.decision == RecoveryDecisionResult.REPLAN:
-                self._transition(AgentState.REPLANNING, "Replanning required, but no replanner attached yet")
-                self._transition(AgentState.FAILED, "No safe recovery path remains")
-                return False
-            elif recovery_decision.decision == RecoveryDecisionResult.ROLLBACK:
+                if self.replan_count >= self.max_replans:
+                    self._audit("REPLAN_FAILED", "FAILED", {"reason": "Max replans exceeded"})
+                    # Fallback to ROLLBACK instead if risk is high, else FAILED
+                    if step.action.risk_level >= 3 or step.action.sandbox_config.required:
+                        recovery_decision = RecoveryDecisionResult.ROLLBACK # Handled below
+                    else:
+                        self._transition(AgentState.FAILED, "Max replans exceeded. No safe recovery path remains.")
+                        return False
+                else:
+                    self._transition(AgentState.REPLANNING, f"Replanning. Attempt {self.replan_count + 1} of {self.max_replans}")
+                    
+                    try:
+                        executed_steps = [s.step_id for s in self.plan.steps[:self.current_step_index]]
+                        error_context = current_error if current_error else "Unknown execution error"
+                        if current_verification:
+                            error_context += f"\nVerification Diff:\n{current_verification.model_dump_json(indent=2)}"
+                            
+                        new_plan = self.planner.replan(
+                            goal=self.goal,
+                            current_plan=self.plan,
+                            failed_step=step,
+                            error=error_context,
+                            executed_steps=executed_steps
+                        )
+                        
+                        self.plan = new_plan
+                        self.context.plan_id = self.plan.plan_id
+                        self.replan_count += 1
+                        self.current_step_index = 0
+                        
+                        self._audit("PLAN_REGENERATED", "SUCCESS", {
+                            "replan_count": self.replan_count,
+                            "new_plan_id": self.plan.plan_id,
+                            "steps_count": len(self.plan.steps)
+                        })
+                        
+                        # Trigger loop break to go back to POLICY_CHECK
+                        return False
+                        
+                    except Exception as e:
+                        self._audit("REPLAN_FAILED", "FAILED", {"error": str(e)})
+                        if step.action.risk_level >= 3 or step.action.sandbox_config.required:
+                            recovery_decision = RecoveryDecisionResult.ROLLBACK
+                        else:
+                            self._transition(AgentState.FAILED, f"Replanning failed: {e}")
+                            return False
+                            
+            if recovery_decision == RecoveryDecisionResult.ROLLBACK or (hasattr(recovery_decision, 'decision') and recovery_decision.decision == RecoveryDecisionResult.ROLLBACK):
                 self._transition(AgentState.ROLLING_BACK, "Executing task-level rollback.")
                 
                 # Retrieve snapshot and rollback
                 from app.agent.actions.filesystem_handlers import snapshot_manager
                 from app.adapters.linux.filesystem.rollback import RollbackManager
                 
-                task_snapshot = snapshot_manager.get_task_snapshot(self.task.id)
+                task_snapshot = snapshot_manager.get_task_snapshot(self.context.task_id)
                 if not task_snapshot:
                     self._audit("ROLLBACK_FAILED", "FAILED", {"error": "No task snapshot found to rollback."})
                     self._transition(AgentState.FAILED, "Rollback failed due to missing snapshot.")
@@ -228,7 +294,7 @@ class AgentOrchestrator:
                     self._audit("ROLLBACK_FAILED", "FAILED", {"error": str(e)})
                     self._transition(AgentState.FAILED, "CRITICAL: Rollback failed. System state may be unsafe.")
                 return False
-            else:
+            elif recovery_decision.decision != RecoveryDecisionResult.RETRY and recovery_decision.decision != RecoveryDecisionResult.REPLAN:
                 # FAIL, ASK_USER -> Abort step
                 self._transition(AgentState.FAILED, "No safe recovery path remains")
                 return False
