@@ -52,6 +52,7 @@ class AgentOrchestrator:
         self.action_retries: Dict[str, int] = {}
         self.replan_count = 0
         self.max_replans = 2
+        self.step_outputs: Dict[str, Any] = {}
 
     def _transition(self, to_state: AgentState, reason: str = None, context_data: dict = None):
         transition = self.state_machine.transition_to(to_state, reason, context_data)
@@ -189,14 +190,82 @@ class AgentOrchestrator:
         self._transition(AgentState.COMPLETED, "All steps completed successfully")
         self._audit("TASK_COMPLETED", "SUCCESS", {"plan_id": self.plan.plan_id})
 
+    def _interpolate_parameters(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Safely resolves {{step_id.output.key}} references using completed step outputs."""
+        import re
+        import copy
+        
+        result = copy.deepcopy(parameters)
+        pattern = re.compile(r"\{\{([^}]+)\}\}")
+        
+        def resolve_value(val: Any) -> Any:
+            if isinstance(val, str):
+                matches = pattern.findall(val)
+                if not matches:
+                    return val
+                    
+                # If the entire string is a single variable, preserve type (e.g. dict/list)
+                if len(matches) == 1 and val.strip() == f"{{{{{matches[0]}}}}}":
+                    return self._resolve_path(matches[0])
+                    
+                # Otherwise string replacement
+                new_str = val
+                for match in matches:
+                    resolved = self._resolve_path(match)
+                    new_str = new_str.replace(f"{{{{{match}}}}}", str(resolved))
+                return new_str
+            elif isinstance(val, dict):
+                return {k: resolve_value(v) for k, v in val.items()}
+            elif isinstance(val, list):
+                return [resolve_value(v) for v in val]
+            return val
+            
+        return resolve_value(result)
+
+    def _resolve_path(self, path: str) -> Any:
+        parts = path.split('.')
+        if len(parts) < 2 or parts[1] != 'output':
+            return f"{{{{{path}}}}}" # Unresolved
+            
+        step_id = parts[0]
+        if step_id not in self.step_outputs:
+            return f"{{{{{path}}}}}"
+            
+        current = self.step_outputs[step_id]
+        for part in parts[2:]:
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            elif isinstance(current, list) and part.isdigit() and int(part) < len(current):
+                current = current[int(part)]
+            else:
+                return f"{{{{{path}}}}}" # Missing key
+        return current
+
     def _execute_step_with_recovery(self, step: PlanStep) -> bool:
         self._audit("ACTION_STARTED", "IN_PROGRESS", {"step_id": step.step_id, "action_type": step.action.action_type})
         
         while True:
+            # 0. Interpolate parameters safely
+            try:
+                interpolated_params = self._interpolate_parameters(step.action.parameters)
+            except Exception as e:
+                self._audit("ACTION_FAILED", "FAILED", {"step_id": step.step_id, "error": f"Parameter interpolation failed: {e}"})
+                current_error = f"Interpolation error: {e}"
+                recovery_decision = self._handle_recovery(step, current_error)
+                if recovery_decision.decision != RecoveryDecisionResult.RETRY and recovery_decision.decision != RecoveryDecisionResult.REPLAN:
+                    self._transition(AgentState.FAILED, "No safe recovery path remains")
+                    return False
+                continue
+
+            import copy
+            action_to_execute = copy.deepcopy(step.action)
+            action_to_execute.parameters = interpolated_params
+
             # 1. Execute Action
-            result = self.execution_engine.execute_action(step.action)
+            result = self.execution_engine.execute_action(action_to_execute)
             
             if result.success:
+                self.step_outputs[step.step_id] = result.output
                 self._audit("ACTION_COMPLETED", "SUCCESS", {"step_id": step.step_id, "output": result.output})
                 
                 # 2. Verify (if successful execution)

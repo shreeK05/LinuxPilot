@@ -9,9 +9,9 @@ class RiskClassifier:
         # But in Phase 3, we map based on explicit action type
         if action.action_type in ["system.info", "filesystem.list_directory", "filesystem.stat", "process.list"]:
             return RiskLevel.LEVEL_0_READ_ONLY
-        elif action.action_type in ["filesystem.read_file"]:
+        elif action.action_type in ["filesystem.read_file", "document.pdf.extract_text", "document.xlsx.read", "browser.navigate", "browser.extract"]:
             return RiskLevel.LEVEL_1_NON_DESTRUCTIVE
-        elif action.action_type in ["filesystem.create_directory", "filesystem.copy", "filesystem.rename", "filesystem.move", "filesystem.write_file"]:
+        elif action.action_type in ["filesystem.create_directory", "filesystem.copy", "filesystem.rename", "filesystem.move", "filesystem.write_file", "document.xlsx.write", "browser.fill", "browser.click", "browser.submit"]:
             return RiskLevel.LEVEL_2_MODIFY
         elif action.action_type in ["filesystem.delete"]:
             return RiskLevel.LEVEL_4_DESTRUCTIVE

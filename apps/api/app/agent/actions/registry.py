@@ -42,6 +42,13 @@ from app.agent.actions.filesystem_handlers import (
     FSCreateDirectoryHandler, FSCopyHandler, FSMoveHandler,
     FSRenameHandler, FSWriteFileHandler, FSDeleteHandler
 )
+from app.agent.actions.document_handlers import (
+    PDFExtractTextHandler, XLSXReadHandler, XLSXWriteHandler
+)
+from app.agent.actions.browser_handlers import (
+    BrowserNavigateHandler, BrowserExtractHandler, BrowserFillHandler,
+    BrowserClickHandler, BrowserSubmitHandler
+)
 from app.adapters.linux.terminal.safe_commands import SafeTerminalCommands
 
 class SystemInfoHandler(ActionHandler):
@@ -78,6 +85,18 @@ class ActionRegistry:
         # System
         self.register("system.info", SystemInfoHandler())
         
+        # Documents
+        self.register("document.pdf.extract_text", PDFExtractTextHandler())
+        self.register("document.xlsx.read", XLSXReadHandler())
+        self.register("document.xlsx.write", XLSXWriteHandler())
+        
+        # Browser
+        self.register("browser.navigate", BrowserNavigateHandler())
+        self.register("browser.extract", BrowserExtractHandler())
+        self.register("browser.fill", BrowserFillHandler())
+        self.register("browser.click", BrowserClickHandler())
+        self.register("browser.submit", BrowserSubmitHandler())
+
         # Legacy for old tests
         self.register("test.init", TestActionHandler())
         self.register("test.search", TestActionHandler())

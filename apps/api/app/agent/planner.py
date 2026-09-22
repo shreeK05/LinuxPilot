@@ -174,7 +174,8 @@ class LLMPlanner(Planner):
             "2. Ensure step_ids are unique.\n"
             "3. Specify dependencies as a list of step_ids.\n"
             "4. Independent steps must have empty dependencies.\n"
-            "5. NO CYCLES."
+            "5. NO CYCLES.\n"
+            "6. To pass data between steps, use variable interpolation in parameters: {{step_id.output.key}}."
         )
         
         user_prompt = f"Goal Intent: {goal.intent}\nObjective: {goal.objective}\nEntities: {goal.entities}"
@@ -230,6 +231,7 @@ class LLMPlanner(Planner):
             "4. NO CYCLES.\n"
             "5. The new plan MUST preserve and include steps that already succeeded, mapping exactly to their old step_ids.\n"
             "6. Provide a new strategy to accomplish the failed step/remaining goal.\n"
+            "7. To pass data between steps, use variable interpolation in parameters: {{step_id.output.key}}.\n"
         )
         
         # Serialize executed steps
