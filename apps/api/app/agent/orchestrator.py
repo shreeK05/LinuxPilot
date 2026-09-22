@@ -70,12 +70,32 @@ class AgentOrchestrator:
             
             # 1. UNDERSTANDING
             self._transition(AgentState.UNDERSTANDING, "Starting goal interpretation")
-            self.goal = self.interpreter.interpret(raw_goal)
+            
+            # Bounded retry for LLM calls
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    self.goal = self.interpreter.interpret(raw_goal)
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise e
+                    logger.warning(f"Goal interpretation failed, retrying (attempt {attempt+1}): {e}")
+            
             self._audit("GOAL_UNDERSTOOD", "SUCCESS", self.goal.model_dump())
             
             # 2. PLANNING
             self._transition(AgentState.PLANNING, "Creating execution plan")
-            self.plan = self.planner.create_plan(self.goal)
+            
+            for attempt in range(max_retries):
+                try:
+                    self.plan = self.planner.create_plan(self.goal)
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise e
+                    logger.warning(f"Plan creation failed, retrying (attempt {attempt+1}): {e}")
+            
             self.context.plan_id = self.plan.plan_id
             self._audit("PLAN_CREATED", "SUCCESS", {"plan_id": self.plan.plan_id, "steps_count": len(self.plan.steps)})
             
@@ -183,16 +203,15 @@ class AgentOrchestrator:
                 self._transition(AgentState.RETRYING, f"Retrying step {step.step_id}: {recovery_decision.reason}")
                 # Loop continues to retry
             elif recovery_decision.decision == RecoveryDecisionResult.REPLAN:
-                self._transition(AgentState.REPLANNING, "Replanning required")
-                # Not fully implemented in Phase 2, so treat as failure
+                self._transition(AgentState.REPLANNING, "Replanning required, but no replanner attached yet")
+                self._transition(AgentState.FAILED, "No safe recovery path remains")
                 return False
             else:
                 # FAIL, ROLLBACK, ASK_USER -> Abort step
+                self._transition(AgentState.FAILED, "No safe recovery path remains")
                 return False
 
     def _handle_recovery(self, step: PlanStep, error: str, verification_result=None) -> RecoveryDecisionResult:
-        self._transition(AgentState.RETRYING if "retry" in error.lower() else AgentState.FAILED, "Evaluating recovery")
-        
         retries = self.action_retries.get(step.step_id, 0)
         decision = self.recovery_engine.determine_recovery(step.action, error, retries, verification_result)
         

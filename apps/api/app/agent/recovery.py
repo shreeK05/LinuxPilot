@@ -13,14 +13,16 @@ class RecoveryEngine:
         # Check explicit retry policy from action or fallback to engine max
         allowed_retries = min(action.retry_policy, self.max_retries)
         
+        # Override allowed_retries if verification explicitly suggests a retry and we haven't maxed out the engine max
+        if verification_result and getattr(verification_result, 'retry_suggested', False):
+            allowed_retries = max(allowed_retries, 1) # Give it at least 1 retry if suggested
+            
         if retry_count < allowed_retries:
             return RecoveryDecision(
                 decision=RecoveryDecisionResult.RETRY,
                 reason=f"Retrying action. Attempt {retry_count + 1} of {allowed_retries}."
             )
             
-        # If retries exhausted, we could replan or ask user. For now, fail or replan based on some dummy logic.
-        # Let's say if it fails verification it might trigger replan, else fail.
         if verification_result and not verification_result.success:
             return RecoveryDecision(
                 decision=RecoveryDecisionResult.REPLAN,

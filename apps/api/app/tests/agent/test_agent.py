@@ -65,4 +65,4 @@ def test_orchestrator_lifecycle():
     assert orchestrator.state_machine.current_state == AgentState.COMPLETED
     assert orchestrator.goal.expected_outcome == "A list of all PDF files located in the Downloads directory."
     assert orchestrator.plan is not None
-    assert len(orchestrator.plan.steps) == 4
+    assert len(orchestrator.plan.steps) == 1

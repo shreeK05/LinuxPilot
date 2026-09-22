@@ -58,12 +58,15 @@ class StateTransition(BaseModel):
     context_data: Optional[Dict[str, Any]] = None
 
 class GoalUnderstanding(BaseModel):
+    intent: str
     objective: str
-    entities: List[str] = []
-    constraints: List[str] = []
-    requested_operations: List[str] = []
+    entities: List[str] = Field(default_factory=list)
+    constraints: List[str] = Field(default_factory=list)
+    preconditions: List[str] = Field(default_factory=list)
     expected_outcome: str
-
+    risk_assessment: str
+    required_permissions: List[str] = Field(default_factory=list)
+    relevant_context: str = ""
 class ActionDefinition(BaseModel):
     action_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     action_type: str
@@ -87,7 +90,12 @@ class ExecutionPlan(BaseModel):
 
 class VerificationResult(BaseModel):
     success: bool
-    expected_state: str
-    actual_state: str
+    expected_state: Any
+    actual_state: Any
+    diff: Optional[Dict[str, Any]] = None
+    confidence: float = 1.0
+    verification_method: str = "deterministic" # or "semantic"
+    retry_suggested: bool = False
+    recovery_suggestion: Optional[str] = None
     evidence: Optional[Dict[str, Any]] = None
     error: Optional[str] = None

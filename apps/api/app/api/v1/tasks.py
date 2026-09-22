@@ -36,12 +36,18 @@ def run_agent_lifecycle(task_id: str, goal: str):
         def on_audit_event(event_type, status, metadata, ctx):
             log_audit_event(db, ctx.task_id, event_type, status, metadata)
 
-        # Assemble components
-        interpreter = DeterministicGoalInterpreter()
-        planner = DeterministicPlanner()
+        from app.agent.llm.provider import get_llm_provider
+        from app.agent.goal_understanding import LLMGoalInterpreter
+        from app.agent.planner import LLMPlanner
+        from app.agent.verifier import VerificationEngine
+        
+        provider = get_llm_provider()
+        interpreter = LLMGoalInterpreter(provider)
+        planner = LLMPlanner(provider, action_registry)
+        
         policy_engine = PolicyEngine()
         execution_engine = ExecutionEngine(action_registry, policy_engine)
-        verifier = DeterministicVerifier()
+        verifier = VerificationEngine(provider)
         recovery_engine = RecoveryEngine()
 
         orchestrator = AgentOrchestrator(
@@ -134,8 +140,11 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
         registry = action_registry
         policy = PolicyEngine()
         from app.agent.executor import ExecutionEngine
-        from app.agent.verifier import DeterministicVerifier
+        from app.agent.verifier import VerificationEngine
         from app.agent.recovery import RecoveryEngine
+        from app.agent.llm.provider import get_llm_provider
+        
+        provider = get_llm_provider()
         
         orchestrator = AgentOrchestrator(
             context=context,
@@ -143,7 +152,7 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
             planner=DeterministicPlanner(),
             policy_engine=policy,
             execution_engine=ExecutionEngine(registry, policy),
-            verifier=DeterministicVerifier(),
+            verifier=VerificationEngine(provider),
             recovery_engine=RecoveryEngine(),
             on_state_change=lambda t, c: repo.save_state_transition(t, c),
             on_audit_event=lambda e, s, m, c: repo.save_audit_event(e, s, m, c)
@@ -188,6 +197,35 @@ def execute_task(task_id: str, background_tasks: BackgroundTasks, db: Session = 
 def get_task_audit(task_id: str, db: Session = Depends(get_db)):
     events = get_audit_events(db, task_id)
     return [{"timestamp": e.timestamp, "type": e.event_type, "status": e.payload.get("status"), "payload": e.payload} for e in events]
+
+@router.get("/{task_id}/plan")
+def get_task_plan(task_id: str, db: Session = Depends(get_db)):
+    from app.models.domain import Plan
+    plan_model = db.query(Plan).filter(Plan.task_id == task_id).first()
+    if not plan_model:
+        return None
+        
+    steps = []
+    max_risk = 0
+    for s in plan_model.steps:
+        steps.append({
+            "step_id": s.id,
+            "name": s.name,
+            "dependencies": s.dependencies,
+            "action": {
+                "action_type": s.action_type,
+                "parameters": s.parameters,
+                "risk_level": s.risk_level
+            }
+        })
+        if s.risk_level > max_risk:
+            max_risk = s.risk_level
+            
+    return {
+        "plan_id": plan_model.id,
+        "risk_level": max_risk,
+        "steps": steps
+    }
 
 @router.get("/{task_id}/timeline")
 def get_task_timeline(task_id: str, db: Session = Depends(get_db)):

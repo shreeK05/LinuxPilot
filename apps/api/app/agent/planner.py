@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Set
+from typing import List, Dict, Set, Any
 from collections import deque
 import uuid
 from app.agent.models import GoalUnderstanding, ExecutionPlan, PlanStep, ActionDefinition, RiskLevel
@@ -111,3 +111,86 @@ class DeterministicPlanner(Planner):
             )
         )
         return ExecutionPlan(plan_id=str(uuid.uuid4()), steps=[step1], risk_level=RiskLevel.LEVEL_0_READ_ONLY)
+
+from app.agent.llm.provider import LLMProvider
+from pydantic import BaseModel, Field
+from typing import Optional
+
+class LLMActionDef(BaseModel):
+    action_type: str
+    parameters: Dict[str, Any]
+    expected_result: Optional[str] = None
+    verification_requirements: Optional[Dict[str, Any]] = None
+
+class LLMPlanStep(BaseModel):
+    step_id: str
+    name: str
+    dependencies: List[str]
+    action: LLMActionDef
+
+class LLMPlanResponse(BaseModel):
+    steps: List[LLMPlanStep]
+
+class LLMPlanner(Planner):
+    """
+    Uses an LLMProvider to generate a hierarchical DAG of steps.
+    """
+    def __init__(self, provider: LLMProvider, registry):
+        self.provider = provider
+        self.registry = registry
+
+    def create_plan(self, goal: GoalUnderstanding) -> ExecutionPlan:
+        # Build prompt using available actions
+        available_actions = []
+        for a_type, handler in self.registry._handlers.items():
+            available_actions.append(a_type)
+            
+        system_prompt = (
+            "You are the Planning Engine for LinuxPilot. Your task is to generate a DAG of executable steps.\n"
+            f"AVAILABLE ACTIONS: {', '.join(available_actions)}\n\n"
+            "Rules:\n"
+            "1. ONLY use available actions.\n"
+            "2. Ensure step_ids are unique.\n"
+            "3. Specify dependencies as a list of step_ids.\n"
+            "4. Independent steps must have empty dependencies.\n"
+            "5. NO CYCLES."
+        )
+        
+        user_prompt = f"Goal Intent: {goal.intent}\nObjective: {goal.objective}\nEntities: {goal.entities}"
+        
+        llm_response = self.provider.generate_structured(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            response_model=LLMPlanResponse,
+            temperature=0.0
+        )
+        
+        steps = []
+        highest_risk = RiskLevel.LEVEL_0_READ_ONLY
+        
+        for llm_step in llm_response.steps:
+            if llm_step.action.action_type not in self.registry._handlers:
+                raise PlannerError(f"LLM proposed unknown action: {llm_step.action.action_type}")
+                
+            # For phase 4, we evaluate risk using our existing policy engine inside the orchestrator
+            # We'll default to LEVEL_0 here and let the Policy Engine elevate it before execution!
+            # Wait, the blueprint says risk classification should be generated, but our Policy Engine handles it.
+            # We'll set a default here, the orchestrator upgrades it.
+            
+            action_def = ActionDefinition(
+                action_type=llm_step.action.action_type,
+                parameters=llm_step.action.parameters,
+                expected_result=llm_step.action.expected_result,
+                verification_requirements=llm_step.action.verification_requirements
+            )
+            
+            steps.append(PlanStep(
+                step_id=llm_step.step_id,
+                name=llm_step.name,
+                dependencies=llm_step.dependencies,
+                action=action_def
+            ))
+            
+        DAGValidator.topological_sort(steps)
+        
+        return ExecutionPlan(plan_id=str(uuid.uuid4()), steps=steps, risk_level=highest_risk)

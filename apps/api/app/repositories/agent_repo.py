@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from app.models.domain import Task, Plan, PlanStep, Execution, ActionExecution, AuditEvent
-from app.agent.models import AgentState, ExecutionPlan, PlanStep as AgentPlanStep, StateTransition, ExecutionContext
+from app.agent.models import AgentState, ExecutionPlan, PlanStep as AgentPlanStep, StateTransition
+from app.agent.context import ExecutionContext
 
 def get_task(db: Session, task_id: str) -> Task:
     return db.query(Task).filter(Task.id == task_id).first()
