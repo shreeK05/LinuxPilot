@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { TaskTable } from './components/TaskTable'
 import type { Task } from './components/TaskTable'
 import { TaskDetails } from './components/TaskDetails'
+import { Dashboard } from './components/Dashboard'
+import { ActivityFeed } from './components/ActivityFeed'
 import './App.css'
 
 function App() {
@@ -17,15 +19,17 @@ function App() {
       .then(data => setHealth(data.status))
       .catch(() => setHealth("Error connecting to API"))
 
-    fetchTasks()
-  }, [apiUrl])
+    const fetchTasks = () => {
+      fetch(`${apiUrl}/tasks`)
+        .then(res => res.json())
+        .then(data => setTasks(data))
+        .catch(err => console.error(err))
+    }
 
-  const fetchTasks = () => {
-    fetch(`${apiUrl}/tasks`)
-      .then(res => res.json())
-      .then(data => setTasks(data))
-      .catch(err => console.error(err))
-  }
+    fetchTasks()
+    const intervalId = setInterval(fetchTasks, 5000);
+    return () => clearInterval(intervalId);
+  }, [apiUrl])
 
   const createTask = () => {
     fetch(`${apiUrl}/tasks`, {
@@ -36,18 +40,20 @@ function App() {
       body: JSON.stringify({ goal: 'Find all PDF files in my Downloads folder', risk_level: 1 })
     })
     .then(res => res.json())
-    .then(() => fetchTasks())
+    .then(() => {
+        // Will refresh on next interval, or could manually trigger
+    })
   }
 
   const selectedTask = tasks.find(t => t.id === selectedTaskId)
 
   return (
     <div className="min-h-screen bg-gray-100 p-8 w-full">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <header className="mb-8 flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">LinuxPilot Dashboard</h1>
-            <p className="text-gray-500">Agent Core Architecture - Phase 2</p>
+            <p className="text-gray-500">Professional Agent Dashboard (Phase 9)</p>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-gray-600">API Status:</span>
@@ -64,19 +70,31 @@ function App() {
             apiUrl={apiUrl} 
           />
         ) : (
-          <div className="bg-white rounded-lg shadow p-6 mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-800">Active Tasks</h2>
-              <button 
-                onClick={createTask}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium transition-colors"
-              >
-                + Create Goal
-              </button>
+          <>
+            <Dashboard apiUrl={apiUrl} />
+            
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-2">
+                <div className="bg-white rounded-lg shadow p-6 mb-8">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold text-gray-800">Task History</h2>
+                    <button 
+                      onClick={createTask}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium transition-colors"
+                    >
+                      + Create Goal
+                    </button>
+                  </div>
+                  <TaskTable tasks={tasks} onSelectTask={setSelectedTaskId} />
+                </div>
+              </div>
+              <div className="lg:col-span-1">
+                <ActivityFeed apiUrl={apiUrl} />
+              </div>
             </div>
-            <TaskTable tasks={tasks} onSelectTask={setSelectedTaskId} />
-          </div>
+          </>
         )}
+
       </div>
     </div>
   )

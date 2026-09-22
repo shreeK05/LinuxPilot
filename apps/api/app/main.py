@@ -20,6 +20,8 @@ app.add_middleware(
 
 app.include_router(health.router, prefix=settings.API_V1_STR, tags=["health"])
 app.include_router(tasks.router, prefix=f"{settings.API_V1_STR}/tasks", tags=["tasks"])
+from app.api.v1 import dashboard
+app.include_router(dashboard.router, prefix=f"{settings.API_V1_STR}/dashboard", tags=["dashboard"])
 
 @app.on_event("startup")
 async def startup_event():
