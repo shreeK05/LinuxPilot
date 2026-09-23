@@ -3,37 +3,38 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Dict, Any
 from app.db.session import get_db
-from app.models.domain import Task as DBTask, AuditEvent, Approval
+from app.models.domain import Task as DBTask, AuditEvent, Approval, User
 from app.agent.models import AgentState
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
 @router.get("/stats")
-def get_dashboard_stats(db: Session = Depends(get_db)):
+def get_dashboard_stats(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     # Calculate Active Tasks
     running_states = [AgentState.EXECUTING.value, AgentState.PLANNING.value, AgentState.VERIFYING.value, AgentState.RETRYING.value, AgentState.REPLANNING.value, AgentState.ROLLING_BACK.value, AgentState.UNDERSTANDING.value, AgentState.POLICY_CHECK.value]
-    
-    running_count = db.query(func.count(DBTask.id)).filter(DBTask.status.in_(running_states)).scalar() or 0
-    waiting_count = db.query(func.count(DBTask.id)).filter(DBTask.status == AgentState.WAITING_APPROVAL.value).scalar() or 0
-    completed_count = db.query(func.count(DBTask.id)).filter(DBTask.status == AgentState.COMPLETED.value).scalar() or 0
-    failed_count = db.query(func.count(DBTask.id)).filter(DBTask.status == AgentState.FAILED.value).scalar() or 0
-    
+
+    running_count = db.query(func.count(DBTask.id)).filter(DBTask.status.in_(running_states), DBTask.user_id == current_user.id).scalar() or 0
+    waiting_count = db.query(func.count(DBTask.id)).filter(DBTask.status == AgentState.WAITING_APPROVAL.value, DBTask.user_id == current_user.id).scalar() or 0
+    completed_count = db.query(func.count(DBTask.id)).filter(DBTask.status == AgentState.COMPLETED.value, DBTask.user_id == current_user.id).scalar() or 0
+    failed_count = db.query(func.count(DBTask.id)).filter(DBTask.status == AgentState.FAILED.value, DBTask.user_id == current_user.id).scalar() or 0
+
     total_finished = completed_count + failed_count
     success_rate = (completed_count / total_finished * 100) if total_finished > 0 else 100.0
 
     # Calculate Safety Metrics
-    rollbacks_count = db.query(func.count(AuditEvent.id)).filter(AuditEvent.event_type == "ROLLBACK_STARTED").scalar() or 0
-    approval_gates = db.query(func.count(Approval.id)).scalar() or 0
+    rollbacks_count = db.query(func.count(AuditEvent.id)).join(DBTask).filter(AuditEvent.event_type == "ROLLBACK_STARTED", DBTask.user_id == current_user.id).scalar() or 0
+    approval_gates = db.query(func.count(Approval.id)).join(DBTask).filter(DBTask.user_id == current_user.id).scalar() or 0
     sandbox_escapes = 0 # Future integration if sandbox throws a specific event
 
     # Calculate Performance Metrics
-    completed_tasks = db.query(DBTask).filter(DBTask.status == AgentState.COMPLETED.value).all()
+    completed_tasks = db.query(DBTask).filter(DBTask.status == AgentState.COMPLETED.value, DBTask.user_id == current_user.id).all()
     avg_duration_seconds = 0
     if completed_tasks:
         durations = [(t.completed_at - t.created_at).total_seconds() for t in completed_tasks if t.completed_at and t.created_at]
         if durations:
             avg_duration_seconds = sum(durations) / len(durations)
-            
+
     # Step latency calculation (approximation based on ACTION_EXECUTED to VERIFICATION_COMPLETED time)
     # For now, we will return a static placeholder or simple calculated metric as this requires complex queries.
     avg_step_latency_ms = 420.0 # From blueprint
@@ -58,8 +59,8 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     }
 
 @router.get("/activity")
-def get_dashboard_activity(db: Session = Depends(get_db)):
-    events = db.query(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(20).all()
+def get_dashboard_activity(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    events = db.query(AuditEvent).join(DBTask).filter(DBTask.user_id == current_user.id).order_by(AuditEvent.timestamp.desc()).limit(20).all()
     result = []
     for e in events:
         result.append({

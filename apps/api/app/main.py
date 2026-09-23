@@ -20,8 +20,12 @@ app.add_middleware(
 
 app.include_router(health.router, prefix=settings.API_V1_STR, tags=["health"])
 app.include_router(tasks.router, prefix=f"{settings.API_V1_STR}/tasks", tags=["tasks"])
+
 from app.api.v1 import dashboard
 app.include_router(dashboard.router, prefix=f"{settings.API_V1_STR}/dashboard", tags=["dashboard"])
+
+from app.api.v1 import auth
+app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 
 from app.core import metrics  # Initialize prometheus metrics
 from prometheus_client import make_asgi_app

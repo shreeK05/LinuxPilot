@@ -25,12 +25,20 @@ def run_around_tests():
             yield db
         finally:
             db.close()
-            
+
+    def override_get_current_user():
+        from app.models.domain import User
+        return User(id="test-user-id", username="testuser")
+
     app.dependency_overrides[get_db] = override_get_db
+    from app.api.deps import get_current_user
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
     app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_current_user, None)
 
 @pytest.fixture
 def db_session():
@@ -42,15 +50,15 @@ def db_session():
 
 def test_dashboard_stats(db_session):
     # Setup mock data
-    task1 = Task(id="task-1", goal="Goal 1", risk_level=1, status=AgentState.EXECUTING.value, created_at=datetime.now(timezone.utc))
-    task2 = Task(id="task-2", goal="Goal 2", risk_level=2, status=AgentState.WAITING_APPROVAL.value, created_at=datetime.now(timezone.utc))
-    task3 = Task(id="task-3", goal="Goal 3", risk_level=1, status=AgentState.COMPLETED.value, created_at=datetime.now(timezone.utc), completed_at=datetime.now(timezone.utc))
-    
+    task1 = Task(id="task-1", user_id="test-user-id", goal="Goal 1", risk_level=1, status=AgentState.EXECUTING.value, created_at=datetime.now(timezone.utc))
+    task2 = Task(id="task-2", user_id="test-user-id", goal="Goal 2", risk_level=2, status=AgentState.WAITING_APPROVAL.value, created_at=datetime.now(timezone.utc))
+    task3 = Task(id="task-3", user_id="test-user-id", goal="Goal 3", risk_level=1, status=AgentState.COMPLETED.value, created_at=datetime.now(timezone.utc), completed_at=datetime.now(timezone.utc))
+
     audit1 = AuditEvent(id="audit-1", task_id="task-1", timestamp=datetime.now(timezone.utc), event_type="ACTION_EXECUTED", payload={})
     audit2 = AuditEvent(id="audit-2", task_id="task-1", timestamp=datetime.now(timezone.utc), event_type="ROLLBACK_STARTED", payload={})
-    
+
     approval1 = Approval(id="appr-1", task_id="task-2", action_id="act-1", requested_at=datetime.now(timezone.utc), status="PENDING")
-    
+
     db_session.add(task1)
     db_session.add(task2)
     db_session.add(task3)
@@ -62,18 +70,20 @@ def test_dashboard_stats(db_session):
     response = client.get("/api/v1/dashboard/stats")
     assert response.status_code == 200
     data = response.json()
-    
+
     assert data["active_tasks"]["running"] >= 1
     assert data["active_tasks"]["waiting_approval"] >= 1
     assert data["active_tasks"]["completed"] >= 1
     assert data["success_rate"] == 100.0 # 1 completed, 0 failed
-    
+
     assert data["safety"]["rollbacks"] >= 1
     assert data["safety"]["approval_gates"] >= 1
 
 def test_dashboard_activity(db_session):
+    task1 = Task(id="task-1", user_id="test-user-id", goal="Goal", risk_level=1, status=AgentState.EXECUTING.value, created_at=datetime.now(timezone.utc))
     audit1 = AuditEvent(id="audit-1", task_id="task-1", timestamp=datetime.now(timezone.utc), event_type="ACTION_EXECUTED", payload={})
     audit2 = AuditEvent(id="audit-2", task_id="task-1", timestamp=datetime.now(timezone.utc), event_type="ROLLBACK_STARTED", payload={})
+    db_session.add(task1)
     db_session.add(audit1)
     db_session.add(audit2)
     db_session.commit()

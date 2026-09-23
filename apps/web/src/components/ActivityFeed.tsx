@@ -1,5 +1,6 @@
 import type { FC } from 'react';
 import { useEffect, useState } from 'react';
+import { fetchWithAuth } from '../utils/api';
 
 interface AuditEvent {
   id: string;
@@ -20,8 +21,11 @@ export const ActivityFeed: FC<ActivityFeedProps> = ({ apiUrl }) => {
 
   useEffect(() => {
     const fetchActivity = () => {
-      fetch(`${apiUrl}/dashboard/activity`)
-        .then(res => res.json())
+      fetchWithAuth(`${apiUrl}/dashboard/activity`)
+        .then(res => {
+            if (res.ok) return res.json();
+            throw new Error("Failed to fetch activity");
+        })
         .then(data => {
           setEvents(data);
           setError(null);
@@ -51,7 +55,7 @@ export const ActivityFeed: FC<ActivityFeedProps> = ({ apiUrl }) => {
         <ul className="space-y-4">
           {events.map((event, idx) => {
             const timeString = new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            
+
             let color = "bg-gray-100 text-gray-700";
             if (event.status === "SUCCESS" || event.type.includes("COMPLETED")) color = "bg-green-100 text-green-800";
             if (event.status === "FAILED" || event.type.includes("FAILED")) color = "bg-red-100 text-red-800";

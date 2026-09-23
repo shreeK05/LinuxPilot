@@ -22,12 +22,20 @@ def run_around_tests():
             yield db
         finally:
             db.close()
-            
+
+    def override_get_current_user():
+        from app.models.domain import User
+        return User(id="test-user-id", username="testuser")
+
     app.dependency_overrides[get_db] = override_get_db
+    from app.api.deps import get_current_user
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
     app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_current_user, None)
 
 def test_health_check():
     response = client.get("/api/v1/health")
@@ -47,7 +55,7 @@ def test_create_task():
 def test_get_tasks():
     client.post("/api/v1/tasks/", json={"goal": "Test Task 1", "risk_level": 1})
     client.post("/api/v1/tasks/", json={"goal": "Test Task 2", "risk_level": 0})
-    
+
     response = client.get("/api/v1/tasks/")
     assert response.status_code == 200
     data = response.json()

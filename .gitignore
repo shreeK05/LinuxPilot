@@ -47,6 +47,7 @@ Thumbs.db
 *.sqlite3
 *.db
 models/
+!apps/api/app/models/
 coverage/
 .pytest_cache/
 .coverage

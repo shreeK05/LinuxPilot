@@ -1,5 +1,6 @@
 import type { FC } from 'react';
 import { useEffect, useState } from 'react';
+import { fetchWithAuth } from '../utils/api';
 
 interface DashboardStats {
   active_tasks: {
@@ -30,8 +31,11 @@ export const Dashboard: FC<DashboardProps> = ({ apiUrl }) => {
 
   useEffect(() => {
     const fetchStats = () => {
-      fetch(`${apiUrl}/dashboard/stats`)
-        .then(res => res.json())
+      fetchWithAuth(`${apiUrl}/dashboard/stats`)
+        .then(res => {
+            if (res.ok) return res.json();
+            throw new Error("Failed to fetch dashboard stats");
+        })
         .then(data => {
           setStats(data);
           setError(null);
@@ -62,7 +66,7 @@ export const Dashboard: FC<DashboardProps> = ({ apiUrl }) => {
           <span className="font-medium text-yellow-600">{stats.active_tasks.waiting_approval}</span> Waiting
         </p>
       </div>
-      
+
       <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
         <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">Success Rate</h3>
         <div className="text-3xl font-bold text-gray-900 mb-1">{stats.success_rate}%</div>

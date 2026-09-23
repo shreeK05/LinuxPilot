@@ -1,5 +1,6 @@
 import type { FC } from 'react';
 import { useEffect, useState } from 'react';
+import { fetchWithAuth } from '../utils/api';
 
 interface TaskAuditEvent {
   timestamp: string;
@@ -20,10 +21,13 @@ export const AuditLogViewer: FC<AuditLogViewerProps> = ({ taskId, apiUrl }) => {
 
   useEffect(() => {
     let isMounted = true;
-    
+
     const fetchAudit = () => {
-      fetch(`${apiUrl}/tasks/${taskId}/audit`)
-        .then(res => res.json())
+      fetchWithAuth(`${apiUrl}/tasks/${taskId}/audit`)
+        .then(res => {
+            if (res.ok) return res.json();
+            throw new Error("Failed to fetch audit log");
+        })
         .then(data => {
           if (isMounted) {
             setEvents(data);
@@ -41,7 +45,7 @@ export const AuditLogViewer: FC<AuditLogViewerProps> = ({ taskId, apiUrl }) => {
 
     fetchAudit();
     const intervalId = setInterval(fetchAudit, 5000);
-    
+
     return () => {
       isMounted = false;
       clearInterval(intervalId);
@@ -79,7 +83,7 @@ export const AuditLogViewer: FC<AuditLogViewerProps> = ({ taskId, apiUrl }) => {
           <tbody>
             {events.map((event, idx) => {
               const timeString = new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
-              
+
               let statusColor = "text-gray-300";
               if (event.status === "SUCCESS") statusColor = "text-green-400";
               if (event.status === "FAILED") statusColor = "text-red-400";

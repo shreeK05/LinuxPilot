@@ -1,50 +1,68 @@
 import { useEffect, useState } from 'react';
 import type { FC } from 'react';
-import type { Task } from './TaskTable';
+import { useParams, useNavigate } from 'react-router-dom';
 import { ApprovalCenter } from './ApprovalCenter';
 import { PlanViewer } from './PlanViewer';
+import { fetchWithAuth } from '../utils/api';
+import { ChangeViewer } from './ChangeViewer';
+import { AuditLogViewer } from './AuditLogViewer';
+import { TaskConversation } from './TaskConversation';
 
 interface TaskDetailsProps {
-  task: Task;
-  onBack: () => void;
   apiUrl: string;
 }
 
-
-
-import { ChangeViewer } from './ChangeViewer';
-import { AuditLogViewer } from './AuditLogViewer';
-
-export const TaskDetails: FC<TaskDetailsProps> = ({ task, onBack, apiUrl }) => {
+export const TaskDetails: FC<TaskDetailsProps> = ({ apiUrl }) => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [task, setTask] = useState<any>(null);
   const [plan, setPlan] = useState<any>(null);
   const [snapshot, setSnapshot] = useState<any>(null);
+  const [auditEvents, setAuditEvents] = useState<any[]>([]);
   const [isRollingBack, setIsRollingBack] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      fetch(`${apiUrl}/tasks/${task.id}/plan`).then(res => res.json()),
-      fetch(`${apiUrl}/tasks/${task.id}/snapshot`).then(res => {
-        if (!res.ok) return null;
-        return res.json();
-      }).catch(() => null)
-    ])
-    .then(([planData, snapshotData]) => {
-      setPlan(planData);
-      setSnapshot(snapshotData);
-    })
-    .catch(err => {
-      console.error(err);
-    });
-  }, [apiUrl, task.id, task.status]);
+    if (!id) return;
+
+    const fetchAll = () => {
+      Promise.all([
+        fetchWithAuth(`${apiUrl}/tasks`).then(res => res.json()),
+        fetchWithAuth(`${apiUrl}/tasks/${id}/plan`).then(res => res.ok ? res.json() : null).catch(() => null),
+        fetchWithAuth(`${apiUrl}/tasks/${id}/snapshot`).then(res => res.ok ? res.json() : null).catch(() => null),
+        fetchWithAuth(`${apiUrl}/tasks/${id}/audit`).then(res => res.ok ? res.json() : []).catch(() => [])
+      ])
+      .then(([tasksData, planData, snapshotData, auditData]) => {
+        const foundTask = tasksData.find((t: any) => t.id === id);
+        if (foundTask) setTask(foundTask);
+        else setError("Task not found");
+
+        setPlan(planData);
+        setSnapshot(snapshotData);
+        setAuditEvents(auditData);
+      })
+      .catch(err => {
+        setError(err.message);
+      });
+    };
+
+    fetchAll();
+    const interval = setInterval(fetchAll, 5000);
+    return () => clearInterval(interval);
+  }, [apiUrl, id]);
 
   const handleRollback = () => {
     if (!confirm('Are you sure you want to manually rollback this task?')) return;
     setIsRollingBack(true);
-    fetch(`${apiUrl}/tasks/${task.id}/rollback`, { method: 'POST' })
-      .then(res => res.json())
+    fetchWithAuth(`${apiUrl}/tasks/${id}/rollback`, { method: 'POST' })
+      .then(res => {
+          if (!res.ok) throw new Error("Rollback request failed");
+          return res.json();
+      })
       .then(res => {
         alert(res.status === 'success' ? 'Rollback successful!' : 'Rollback failed.');
-        window.location.reload();
+        setIsRollingBack(false);
       })
       .catch(err => {
         alert('Error: ' + err.message);
@@ -52,69 +70,65 @@ export const TaskDetails: FC<TaskDetailsProps> = ({ task, onBack, apiUrl }) => {
       });
   };
 
-  const handleExecute = () => {
-    fetch(`${apiUrl}/tasks/${task.id}/execute`, { method: 'POST' })
-      .then(res => res.json())
-      .then(() => alert('Execution started. Refresh the page to see updates.'));
-  };
+  if (error) return <div className="p-8 text-red-500 text-center">{error}</div>;
+  if (!task) return <div className="p-8 text-slate-500 text-center">Loading task...</div>;
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex items-center gap-4 mb-6">
-        <button 
-          onClick={onBack}
-          className="text-gray-500 hover:text-gray-900"
-        >
-          &larr; Back
-        </button>
-        <h2 className="text-xl font-semibold text-gray-800 flex-1">Task Details</h2>
-        <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded">
-          {task.id}
-        </span>
-        <button
-          onClick={handleExecute}
-          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
-        >
-          Run Execution
-        </button>
-      </div>
+    <div className="w-full animation-fade-in pb-12">
+      <button
+        onClick={() => navigate('/tasks')}
+        className="text-slate-500 hover:text-slate-900 mb-6 font-medium text-sm transition-colors"
+      >
+        &larr; Back to History
+      </button>
 
-      <div className="grid grid-cols-2 gap-6 mb-8">
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <h3 className="text-sm font-medium text-gray-500 mb-1">Goal</h3>
-          <p className="text-gray-900 font-medium">{task.goal}</p>
-        </div>
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <h3 className="text-sm font-medium text-gray-500 mb-1">Status</h3>
-          <p className="text-gray-900 font-medium">{task.status}</p>
-        </div>
-      </div>
-      
-      <div className="mb-8">
-        <PlanViewer plan={plan} />
-      </div>
-      
+      <TaskConversation
+        task={task}
+        auditEvents={auditEvents}
+        onAdvancedDetailsToggle={() => setShowAdvanced(!showAdvanced)}
+        showAdvanced={showAdvanced}
+      />
+
       {task.status === 'WAITING_APPROVAL' && (
-        <ApprovalCenter 
-          taskId={task.id} 
-          apiUrl={apiUrl} 
+        <ApprovalCenter
+          taskId={task.id}
+          apiUrl={apiUrl}
           onDecided={() => {
-            alert('Decision recorded. Refreshing...');
-            window.location.reload();
-          }} 
+            // Let the interval pick up the state change
+          }}
         />
       )}
 
-      {snapshot && (
-        <ChangeViewer 
-          snapshot={snapshot} 
-          onRollback={handleRollback} 
-          isRollingBack={isRollingBack} 
-        />
-      )}
+      {showAdvanced && (
+        <div className="mt-8 space-y-8 animation-fade-in">
+          <div className="border-t border-slate-200 pt-8">
+            <h3 className="text-xl font-bold text-slate-900 mb-6">Advanced Details</h3>
 
-      <h3 className="text-lg font-semibold text-gray-800 mb-4 mt-8">Execution Audit Trail</h3>
-      <AuditLogViewer taskId={task.id} apiUrl={apiUrl} />
+            <div className="space-y-8">
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h4 className="text-lg font-semibold text-slate-800 mb-4">Execution Plan</h4>
+                <PlanViewer plan={plan} />
+              </div>
+
+              {snapshot && (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                  <h4 className="text-lg font-semibold text-slate-800 mb-4">Filesystem Changes</h4>
+                  <ChangeViewer
+                    snapshot={snapshot}
+                    onRollback={handleRollback}
+                    isRollingBack={isRollingBack}
+                  />
+                </div>
+              )}
+
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <h4 className="text-lg font-semibold text-slate-800 mb-4">Raw Audit Trail</h4>
+                <AuditLogViewer taskId={task.id} apiUrl={apiUrl} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

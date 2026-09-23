@@ -5,6 +5,8 @@ from app.db.session import get_db
 from app.models.domain import Task as DBTask
 from app.schemas.task import TaskCreate, TaskResponse
 from app.repositories.agent_repo import update_task_state, create_approval, save_plan, log_audit_event, get_audit_events
+from app.api.deps import get_current_user
+from app.models.domain import User
 from app.agent.orchestrator import AgentOrchestrator
 from app.agent.goal_understanding import DeterministicGoalInterpreter
 from app.agent.planner import DeterministicPlanner
@@ -141,8 +143,8 @@ def run_agent_lifecycle(task_id: str, goal: str):
 
 
 @router.post("/", response_model=TaskResponse)
-def create_task(task: TaskCreate, db: Session = Depends(get_db)):
-    db_task = DBTask(goal=task.goal, risk_level=task.risk_level, status=AgentState.IDLE.value)
+def create_task(task: TaskCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    db_task = DBTask(goal=task.goal, risk_level=task.risk_level, status=AgentState.IDLE.value, user_id=current_user.id)
     db.add(db_task)
     db.commit()
     db.refresh(db_task)
@@ -154,11 +156,12 @@ def approve_task(
     background_tasks: BackgroundTasks,
     approved: bool = True,
     reason: str = "",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     from datetime import datetime
     from app.models.domain import Task, Approval
-    task = db.query(Task).filter(Task.id == task_id).first()
+    task = db.query(Task).filter(Task.id == task_id, Task.user_id == current_user.id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -295,13 +298,13 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
         db.close()
 
 @router.get("/", response_model=List[TaskResponse])
-def get_tasks(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    tasks = db.query(DBTask).order_by(DBTask.created_at.desc()).offset(skip).limit(limit).all()
+def get_tasks(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    tasks = db.query(DBTask).filter(DBTask.user_id == current_user.id).order_by(DBTask.created_at.desc()).offset(skip).limit(limit).all()
     return tasks
 
 @router.post("/{task_id}/execute")
-def execute_task(task_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    task = db.query(DBTask).filter(DBTask.id == task_id).first()
+def execute_task(task_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    task = db.query(DBTask).filter(DBTask.id == task_id, DBTask.user_id == current_user.id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -314,12 +317,19 @@ def execute_task(task_id: str, background_tasks: BackgroundTasks, db: Session = 
     return {"message": "Execution started", "task_id": task_id}
 
 @router.get("/{task_id}/audit")
-def get_task_audit(task_id: str, db: Session = Depends(get_db)):
+def get_task_audit(task_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    task = db.query(DBTask).filter(DBTask.id == task_id, DBTask.user_id == current_user.id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
     events = get_audit_events(db, task_id)
     return [{"timestamp": e.timestamp, "type": e.event_type, "status": e.payload.get("status"), "payload": e.payload} for e in events]
 
 @router.get("/{task_id}/plan")
-def get_task_plan(task_id: str, db: Session = Depends(get_db)):
+def get_task_plan(task_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    task = db.query(DBTask).filter(DBTask.id == task_id, DBTask.user_id == current_user.id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
     from app.models.domain import Plan
     plan_model = db.query(Plan).filter(Plan.task_id == task_id).order_by(Plan.version.desc()).first()
     if not plan_model:
@@ -350,8 +360,8 @@ def get_task_plan(task_id: str, db: Session = Depends(get_db)):
     }
 
 @router.get("/{task_id}/timeline")
-def get_task_timeline(task_id: str, db: Session = Depends(get_db)):
-    task = db.query(DBTask).filter(DBTask.id == task_id).first()
+def get_task_timeline(task_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    task = db.query(DBTask).filter(DBTask.id == task_id, DBTask.user_id == current_user.id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -362,7 +372,11 @@ def get_task_timeline(task_id: str, db: Session = Depends(get_db)):
     }
 
 @router.get("/{task_id}/snapshot")
-def get_task_snapshot(task_id: str):
+def get_task_snapshot(task_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    task = db.query(DBTask).filter(DBTask.id == task_id, DBTask.user_id == current_user.id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
     from app.agent.actions.filesystem_handlers import snapshot_manager
     snapshot = snapshot_manager.get_task_snapshot(task_id)
     if not snapshot:
@@ -370,8 +384,8 @@ def get_task_snapshot(task_id: str):
     return snapshot.model_dump()
 
 @router.post("/{task_id}/rollback")
-def manual_rollback(task_id: str, db: Session = Depends(get_db)):
-    task = db.query(DBTask).filter(DBTask.id == task_id).first()
+def manual_rollback(task_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    task = db.query(DBTask).filter(DBTask.id == task_id, DBTask.user_id == current_user.id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
