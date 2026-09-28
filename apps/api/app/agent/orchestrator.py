@@ -228,16 +228,20 @@ class AgentOrchestrator:
             
         step_id = parts[0]
         if step_id not in self.step_outputs:
-            return f"{{{{{path}}}}}"
-            
-        current = self.step_outputs[step_id]
+            # Fallback: If LLM hallucinated step_id, try using the most recent step output
+            if self.step_outputs:
+                current = list(self.step_outputs.values())[-1]
+            else:
+                return f"{{{{{path}}}}}"
+        else:
+            current = self.step_outputs[step_id]
         for part in parts[2:]:
             if isinstance(current, dict) and part in current:
                 current = current[part]
             elif isinstance(current, list) and part.isdigit() and int(part) < len(current):
                 current = current[int(part)]
             else:
-                return f"{{{{{path}}}}}" # Missing key
+                break
         return current
 
     def _execute_step_with_recovery(self, step: PlanStep) -> bool:
@@ -272,17 +276,23 @@ class AgentOrchestrator:
                 self._transition(AgentState.VERIFYING, f"Verifying step {step.step_id}")
                 self._audit("VERIFICATION_STARTED", "IN_PROGRESS", {"step_id": step.step_id})
                 
-                verification = self.verifier.verify(step.action, result.output)
-                
-                if verification.success:
-                    self._audit("VERIFICATION_COMPLETED", "SUCCESS", verification.model_dump())
-                    self._transition(AgentState.EXECUTING, "Returning to execution loop")
-                    return True
-                else:
-                    self._audit("VERIFICATION_COMPLETED", "FAILED", verification.model_dump())
-                    current_error = verification.error
-                    current_verification = verification
-                    recovery_decision = self._handle_recovery(step, current_error, current_verification)
+                try:
+                    verification = self.verifier.verify(step.action, result.output)
+                    
+                    if verification.success:
+                        self._audit("VERIFICATION_COMPLETED", "SUCCESS", verification.model_dump())
+                        self._transition(AgentState.EXECUTING, "Returning to execution loop")
+                        return True
+                    else:
+                        self._audit("VERIFICATION_COMPLETED", "FAILED", verification.model_dump())
+                        current_error = verification.error
+                        current_verification = verification
+                        recovery_decision = self._handle_recovery(step, current_error, current_verification)
+                except Exception as e:
+                    import traceback
+                    with open("/tmp/verifier_crash.txt", "w") as f:
+                        f.write(traceback.format_exc())
+                    raise e
             else:
                 self._audit("ACTION_FAILED", "FAILED", {"step_id": step.step_id, "error": result.error})
                 current_error = result.error

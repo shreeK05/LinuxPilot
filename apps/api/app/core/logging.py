@@ -1,7 +1,7 @@
 import logging
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pythonjsonlogger.json import JsonFormatter
 
 class CustomJsonFormatter(JsonFormatter):
@@ -10,7 +10,7 @@ class CustomJsonFormatter(JsonFormatter):
         
         # Add required blueprint fields if not present
         if not log_record.get('timestamp'):
-            log_record['timestamp'] = datetime.utcnow().isoformat() + "Z"
+            log_record['timestamp'] = datetime.now(timezone.utc).isoformat() + "Z"
             
         # Ensure blueprint structure
         for field in ['task_id', 'run_id', 'step_id', 'component', 'event', 'action', 'status', 'latency_ms']:

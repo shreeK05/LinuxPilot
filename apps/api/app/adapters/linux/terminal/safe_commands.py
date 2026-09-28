@@ -42,3 +42,17 @@ class SafeTerminalCommands:
             }
         except Exception as e:
             return {"error": str(e)}
+
+    @staticmethod
+    def get_os_info() -> Dict[str, Any]:
+        import platform
+        try:
+            return {
+                "system": platform.system(),
+                "release": platform.release(),
+                "version": platform.version(),
+                "machine": platform.machine(),
+                "architecture": platform.architecture()[0]
+            }
+        except Exception as e:
+            return {"error": str(e)}

@@ -19,6 +19,16 @@ class FSListDirectoryHandler(ActionHandler):
         except Exception as e:
             return ActionExecutionResult(success=False, output=None, error=str(e))
 
+class FSFindFilesHandler(ActionHandler):
+    def execute(self, action: ActionDefinition) -> ActionExecutionResult:
+        try:
+            target = action.parameters.get("path")
+            pattern = action.parameters.get("pattern", "*")
+            result = fs_adapter.find_files(target, pattern)
+            return ActionExecutionResult(success=True, output=result)
+        except Exception as e:
+            return ActionExecutionResult(success=False, output=None, error=str(e))
+
 class FSStatHandler(ActionHandler):
     def execute(self, action: ActionDefinition) -> ActionExecutionResult:
         try:

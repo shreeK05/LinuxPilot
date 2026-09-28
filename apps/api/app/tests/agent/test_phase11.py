@@ -42,6 +42,11 @@ def test_context_passing_engine():
     
 def test_xlsx_read_write(tmp_path):
     file_path = str(tmp_path / "test.xlsx")
+    
+    # Temporarily allow tmp_path in document_handlers security_policy
+    import app.agent.actions.document_handlers as dh
+    dh.security_policy.allowed_roots.append(str(tmp_path.resolve()))
+    
     write_handler = XLSXWriteHandler()
     read_handler = XLSXReadHandler()
     

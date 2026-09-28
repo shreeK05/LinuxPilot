@@ -143,11 +143,20 @@ export function translateTaskState(
       state: 'completed'
     });
   } else if (status === 'FAILED') {
+    const failedEvent = events.find(e => e.type === 'TASK_FAILED');
+    let errorMessage = 'LinuxPilot encountered an unrecoverable error.';
+    
+    if (failedEvent && failedEvent.payload && failedEvent.payload.error) {
+       errorMessage = failedEvent.payload.error;
+    } else if (failedEvent && failedEvent.payload && failedEvent.payload.failed_step) {
+       errorMessage = `Failed during step: ${failedEvent.payload.failed_step}`;
+    }
+
     steps.push({
       id: 'done',
       label: 'Task failed',
       state: 'error',
-      message: 'LinuxPilot encountered an unrecoverable error.'
+      message: errorMessage
     });
   }
 

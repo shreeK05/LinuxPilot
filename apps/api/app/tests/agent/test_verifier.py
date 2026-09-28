@@ -35,7 +35,7 @@ def test_semantic_verifier_success():
             "success": True,
             "expected_state": "System memory is displayed",
             "actual_state": "Memory: 16GB",
-            "diff": {"expected": "System memory is displayed", "actual": "Memory: 16GB", "match": True},
+            "diff": "Values match",
             "confidence": 0.95,
             "retry_suggested": False
         }
@@ -50,7 +50,7 @@ def test_semantic_verifier_success():
     assert result.success is True
     assert result.confidence == 0.95
     assert result.verification_method == "semantic"
-    assert result.diff["match"] is True
+    assert result.diff["description"] == "Values match"
 
 def test_semantic_verifier_failure_with_retry():
     mock_responses = {
@@ -58,7 +58,7 @@ def test_semantic_verifier_failure_with_retry():
             "success": False,
             "expected_state": "App installed",
             "actual_state": "Command not found: apt",
-            "diff": {"match": False},
+            "diff": "Values do not match",
             "confidence": 0.9,
             "retry_suggested": True,
             "error": "Failed to run apt"

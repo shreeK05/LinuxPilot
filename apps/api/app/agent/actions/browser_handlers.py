@@ -2,14 +2,16 @@ from typing import Any
 from app.agent.actions.registry import ActionHandler, ActionExecutionResult
 from app.agent.models import ActionDefinition
 
+import threading
+
 class BrowserSession:
-    _instance = None
+    _local = threading.local()
     
     @classmethod
     def get_instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+        if not hasattr(cls._local, "instance"):
+            cls._local.instance = cls()
+        return cls._local.instance
 
     def __init__(self):
         self.playwright = None
@@ -39,7 +41,8 @@ class BrowserSession:
         if self.playwright:
             self.playwright.stop()
             self.playwright = None
-        BrowserSession._instance = None
+        if hasattr(BrowserSession._local, "instance"):
+            del BrowserSession._local.instance
 
 class BrowserNavigateHandler(ActionHandler):
     def execute(self, action: ActionDefinition) -> ActionExecutionResult:
@@ -47,9 +50,12 @@ class BrowserNavigateHandler(ActionHandler):
             url = action.parameters.get("url")
             if not url:
                 return ActionExecutionResult(success=False, output=None, error="URL is required")
+                
+            if url.lower().startswith("file://"):
+                return ActionExecutionResult(success=False, output=None, error="Local file URLs are not permitted in the browser handler. Use filesystem actions instead.")
             
             page = BrowserSession.get_instance().get_page()
-            page.goto(url, wait_until="networkidle")
+            page.goto(url, wait_until="domcontentloaded")
             return ActionExecutionResult(success=True, output={"url": page.url, "title": page.title()})
         except Exception as e:
             return ActionExecutionResult(success=False, output=None, error=f"Failed to navigate: {str(e)}")
@@ -63,7 +69,7 @@ class BrowserExtractHandler(ActionHandler):
             if selector:
                 elements = page.query_selector_all(selector)
                 texts = [el.inner_text() for el in elements]
-                return ActionExecutionResult(success=True, output={"texts": texts})
+                return ActionExecutionResult(success=True, output={"text": "\n\n".join(texts)})
             else:
                 # Full page text
                 text = page.locator("body").inner_text()

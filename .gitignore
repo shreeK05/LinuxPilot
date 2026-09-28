@@ -52,3 +52,4 @@ coverage/
 .pytest_cache/
 .coverage
 htmlcov/
+apps/api/.validation_workspace/

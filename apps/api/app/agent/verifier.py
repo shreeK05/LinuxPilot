@@ -1,17 +1,18 @@
 import json
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from app.agent.models import ActionDefinition, VerificationResult
 from app.adapters.linux.filesystem.security import FilesystemSecurityPolicy
 from pathlib import Path
 from app.agent.llm.provider import LLMProvider, LLMProviderError
 
 class LLMVerificationResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     success: bool
     expected_state: str
     actual_state: str
-    diff: Optional[Dict[str, Any]] = None
+    diff: Optional[str] = None
     confidence: float
     error: Optional[str] = None
     retry_suggested: bool = False
@@ -123,7 +124,7 @@ class DeterministicVerifier(Verifier):
             return VerificationResult(success=True, expected_state=expected, actual_state="success", diff=self._generate_diff(expected, "success"), verification_method="deterministic")
             
         except Exception as e:
-            return VerificationResult(success=False, expected_state="success", actual_state="error", error=f"Verification crashed: {str(e)}", verification_method="deterministic")
+            return VerificationResult(success=False, expected_state="success", actual_state="error", error=f"Verification crashed: {str(e)}", verification_method="deterministic", diff={"error": str(e)})
 
 class LLMSemanticVerifier(Verifier):
     def __init__(self, provider: LLMProvider):
@@ -138,7 +139,12 @@ class LLMSemanticVerifier(Verifier):
             "Output MUST be in the exact JSON schema requested. Compare the output and state meticulously."
         )
         
-        user_prompt = f"Expected State:\n{action.expected_result}\n\nActual Execution Output:\n{output}"
+        # Truncate output to prevent LLM context limit bounds
+        truncated_output = str(output)
+        if len(truncated_output) > 5000:
+            truncated_output = truncated_output[:5000] + "\n...[TRUNCATED]"
+
+        user_prompt = f"Expected State:\n{action.expected_result}\n\nActual Execution Output:\n{truncated_output}"
         
         try:
             result = self.provider.generate_structured(
@@ -152,7 +158,7 @@ class LLMSemanticVerifier(Verifier):
                 success=result.success,
                 expected_state=result.expected_state,
                 actual_state=result.actual_state,
-                diff=result.diff or {"expected": result.expected_state, "actual": result.actual_state, "match": result.success},
+                diff={"description": result.diff} if result.diff else {"expected": result.expected_state, "actual": result.actual_state, "match": result.success},
                 confidence=result.confidence,
                 verification_method="semantic",
                 retry_suggested=result.retry_suggested,
@@ -166,7 +172,8 @@ class LLMSemanticVerifier(Verifier):
                 actual_state="Error executing semantic verification",
                 error=str(e),
                 verification_method="semantic",
-                retry_suggested=False
+                retry_suggested=False,
+                diff={"error": "Failed to generate structured response"}
             )
 
 class VerificationEngine:

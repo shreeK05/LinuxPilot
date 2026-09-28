@@ -14,6 +14,12 @@ class FilesystemAdapter:
         self.max_read_size = 5 * 1024 * 1024  # 5MB
         self.max_write_size = 50 * 1024 * 1024 # 50MB
 
+    @staticmethod
+    def _safe_opener(path, flags):
+        if hasattr(os, 'O_NOFOLLOW'):
+            flags |= os.O_NOFOLLOW
+        return os.open(path, flags)
+
     def list_directory(self, path: str) -> List[Dict[str, Any]]:
         safe_path = self.security.validate_path(path)
         if not safe_path.exists() or not safe_path.is_dir():
@@ -27,6 +33,25 @@ class FilesystemAdapter:
                 "size": item.stat().st_size if item.is_file() else 0,
                 "path": str(item)
             })
+        return results
+
+    def find_files(self, path: str, pattern: str = "*") -> List[Dict[str, Any]]:
+        safe_path = self.security.validate_path(path)
+        if not safe_path.exists() or not safe_path.is_dir():
+            raise FileNotFoundError(f"Directory not found: {path}")
+            
+        results = []
+        for item in safe_path.rglob(pattern):
+            try:
+                item_safe = self.security.validate_path(str(item))
+                results.append({
+                    "name": item_safe.name,
+                    "is_dir": item_safe.is_dir(),
+                    "size": item_safe.stat().st_size if item_safe.is_file() else 0,
+                    "path": str(item_safe)
+                })
+            except FilesystemSecurityError:
+                continue
         return results
 
     def stat(self, path: str) -> Dict[str, Any]:
@@ -51,7 +76,7 @@ class FilesystemAdapter:
         if safe_path.stat().st_size > self.max_read_size:
             raise ValueError(f"File exceeds maximum read size of {self.max_read_size} bytes")
             
-        with open(safe_path, 'r', encoding='utf-8') as f:
+        with open(safe_path, 'r', encoding='utf-8', opener=self._safe_opener) as f:
             return f.read()
 
     def create_directory(self, path: str) -> str:
@@ -67,7 +92,7 @@ class FilesystemAdapter:
         # Ensure parent exists
         safe_path.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(safe_path, 'w', encoding='utf-8') as f:
+        with open(safe_path, 'w', encoding='utf-8', opener=self._safe_opener) as f:
             f.write(content)
         return str(safe_path)
 

@@ -31,6 +31,6 @@ class RecoveryEngine:
             )
             
         return RecoveryDecision(
-            decision=RecoveryDecisionResult.FAIL,
-            reason=f"Action failed and max retries ({allowed_retries}) exceeded."
+            decision=RecoveryDecisionResult.REPLAN,
+            reason=f"Action failed and max retries ({allowed_retries}) exceeded. Requesting replan."
         )

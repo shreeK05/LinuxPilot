@@ -73,7 +73,13 @@ def run_agent_lifecycle(task_id: str, goal: str):
 
         # Audit callback
         def on_audit_event(event_type, status, metadata, ctx):
-            log_audit_event(db, ctx.task_id, event_type, status, metadata)
+            try:
+                log_audit_event(db, ctx.task_id, event_type, status, metadata)
+            except Exception as e:
+                import traceback
+                with open("/tmp/audit_crash.txt", "w") as f:
+                    f.write(traceback.format_exc())
+                raise e
 
             if event_type == "VERIFICATION_COMPLETED" and status == "FAILED":
                 STEP_VERIFICATION_FAILURES.inc()
@@ -159,7 +165,7 @@ def approve_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    from datetime import datetime
+    from datetime import datetime, timezone
     from app.models.domain import Task, Approval
     task = db.query(Task).filter(Task.id == task_id, Task.user_id == current_user.id).first()
     if not task:
@@ -170,7 +176,7 @@ def approve_task(
         raise HTTPException(status_code=400, detail="No pending approval for this task")
 
     approval.status = "APPROVED" if approved else "REJECTED"
-    approval.decision_at = datetime.utcnow()
+    approval.decision_at = datetime.now(timezone.utc)
     approval.decision_source = "USER"
     db.commit()
 
@@ -186,7 +192,7 @@ def resume_agent_lifecycle(task_id: str, approved: bool, reason: str):
     from app.agent.actions.registry import action_registry
     from app.models.domain import Task, Plan
     from app.repositories.agent_repo import update_task_state, create_approval, save_plan, log_audit_event
-    from datetime import datetime
+    from datetime import datetime, timezone
     from app.core.logging import log_event
     from app.core.metrics import (
         TASKS_COMPLETED, TASKS_FAILED, TASK_DURATION,
@@ -330,23 +336,73 @@ def get_task_plan(task_id: str, db: Session = Depends(get_db), current_user: Use
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    from app.models.domain import Plan
+    from app.models.domain import Plan, ActionExecution, Verification
     plan_model = db.query(Plan).filter(Plan.task_id == task_id).order_by(Plan.version.desc()).first()
     if not plan_model:
         return None
 
     steps = []
     max_risk = 0
+
+    # Build a map of step_id -> audit events from audit trail
+    # The orchestrator writes step_id as the original step_id (e.g. "step-os-info"),
+    # but the DB stores the compound id as "{plan_id}_{step_id}".
+    # We need to match both forms.
+    from app.models.domain import AuditEvent as DBAuditEvent
+    audit_events = db.query(DBAuditEvent).filter(DBAuditEvent.task_id == task_id).order_by(DBAuditEvent.timestamp).all()
+
+    # Index: logical_step_id -> list of relevant events
+    step_events: Dict[str, list] = {}
+    for evt in audit_events:
+        sid = (evt.payload or {}).get("step_id")
+        if sid:
+            step_events.setdefault(sid, []).append(evt)
+
     for s in plan_model.steps:
+        # Derive the logical step_id (suffix after plan_id_)
+        logical_step_id = s.id
+        prefix = f"{plan_model.id}_"
+        if s.id.startswith(prefix):
+            logical_step_id = s.id[len(prefix):]
+
+        # Determine execution status from audit events
+        events_for_step = step_events.get(logical_step_id, [])
+        exec_status = "Not executed"
+        result_data = None
+        verification_data = "Not verified"
+
+        event_types = {e.event_type: e for e in events_for_step}
+
+        if "ACTION_COMPLETED" in event_types:
+            exec_status = "SUCCESS"
+            result_data = event_types["ACTION_COMPLETED"].payload.get("output")
+        elif "ACTION_FAILED" in event_types:
+            exec_status = "FAILED"
+            result_data = {"error": event_types["ACTION_FAILED"].payload.get("error")}
+        elif "ACTION_STARTED" in event_types:
+            exec_status = "IN_PROGRESS"
+
+        if "VERIFICATION_COMPLETED" in event_types:
+            verif_payload = event_types["VERIFICATION_COMPLETED"].payload or {}
+            verification_data = {
+                "expected": verif_payload.get("expected_state"),
+                "actual": verif_payload.get("actual_state"),
+                "passed": verif_payload.get("success", False)
+            }
+
         steps.append({
             "step_id": s.id,
+            "logical_step_id": logical_step_id,
             "name": s.name,
+            "status": exec_status,
             "dependencies": s.dependencies,
             "action": {
                 "action_type": s.action_type,
                 "parameters": s.parameters,
                 "risk_level": s.risk_level
-            }
+            },
+            "result": result_data,
+            "verification": verification_data
         })
         if s.risk_level > max_risk:
             max_risk = s.risk_level
@@ -380,7 +436,7 @@ def get_task_snapshot(task_id: str, db: Session = Depends(get_db), current_user:
     from app.agent.actions.filesystem_handlers import snapshot_manager
     snapshot = snapshot_manager.get_task_snapshot(task_id)
     if not snapshot:
-        raise HTTPException(status_code=404, detail="No snapshot found for this task")
+        return None
     return snapshot.model_dump()
 
 @router.post("/{task_id}/rollback")

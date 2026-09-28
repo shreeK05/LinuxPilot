@@ -7,6 +7,8 @@ import { fetchWithAuth } from '../utils/api';
 import { ChangeViewer } from './ChangeViewer';
 import { AuditLogViewer } from './AuditLogViewer';
 import { TaskConversation } from './TaskConversation';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 
 interface TaskDetailsProps {
   apiUrl: string;
@@ -42,8 +44,12 @@ export const TaskDetails: FC<TaskDetailsProps> = ({ apiUrl }) => {
         setSnapshot(snapshotData);
         setAuditEvents(auditData);
       })
-      .catch(err => {
-        setError(err.message);
+      .catch((err: any) => {
+        if (err.message === "Failed to fetch") {
+          setError("Backend is unavailable. Please check your connection to the LinuxPilot API.");
+        } else {
+          setError(err.message || "An unexpected error occurred");
+        }
       });
     };
 
@@ -70,65 +76,99 @@ export const TaskDetails: FC<TaskDetailsProps> = ({ apiUrl }) => {
       });
   };
 
-  if (error) return <div className="p-8 text-red-500 text-center">{error}</div>;
-  if (!task) return <div className="p-8 text-slate-500 text-center">Loading task...</div>;
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64 text-danger-500 font-medium">
+        <div className="glass-card p-6 rounded-xl">{error}</div>
+      </div>
+    );
+  }
+  
+  if (!task) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-brand-500">
+        <Loader2 size={32} className="animate-spin mb-4" />
+        <span className="text-text-muted">Loading task...</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full animation-fade-in pb-12">
-      <button
+    <div className="w-full pb-12">
+      <motion.button
+        initial={{ opacity: 0, x: -10 }}
+        animate={{ opacity: 1, x: 0 }}
         onClick={() => navigate('/tasks')}
-        className="text-slate-500 hover:text-slate-900 mb-6 font-medium text-sm transition-colors"
+        className="flex items-center gap-2 text-text-muted hover:text-white mb-6 font-medium text-sm transition-colors group"
       >
-        &larr; Back to History
-      </button>
+        <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+        Back to History
+      </motion.button>
 
       <TaskConversation
         task={task}
         auditEvents={auditEvents}
         onAdvancedDetailsToggle={() => setShowAdvanced(!showAdvanced)}
         showAdvanced={showAdvanced}
+        plan={plan}
       />
 
-      {task.status === 'WAITING_APPROVAL' && (
-        <ApprovalCenter
-          taskId={task.id}
-          apiUrl={apiUrl}
-          onDecided={() => {
-            // Let the interval pick up the state change
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {task.status === 'WAITING_APPROVAL' && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mt-8 max-w-2xl mx-auto overflow-hidden"
+          >
+            <ApprovalCenter
+              taskId={task.id}
+              apiUrl={apiUrl}
+              onDecided={() => {
+                // Let the interval pick up the state change
+              }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {showAdvanced && (
-        <div className="mt-8 space-y-8 animation-fade-in">
-          <div className="border-t border-slate-200 pt-8">
-            <h3 className="text-xl font-bold text-slate-900 mb-6">Advanced Details</h3>
+      <AnimatePresence>
+        {showAdvanced && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -20, height: 0 }}
+            className="mt-8 overflow-hidden max-w-4xl mx-auto"
+          >
+            <div className="pt-8">
+              <h3 className="text-xl font-bold text-white mb-6 tracking-tight">Advanced Details</h3>
 
-            <div className="space-y-8">
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <h4 className="text-lg font-semibold text-slate-800 mb-4">Execution Plan</h4>
-                <PlanViewer plan={plan} />
-              </div>
-
-              {snapshot && (
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                  <h4 className="text-lg font-semibold text-slate-800 mb-4">Filesystem Changes</h4>
-                  <ChangeViewer
-                    snapshot={snapshot}
-                    onRollback={handleRollback}
-                    isRollingBack={isRollingBack}
-                  />
+              <div className="space-y-6">
+                <div className="glass-card rounded-xl p-6">
+                  <h4 className="text-sm font-semibold text-text-muted uppercase tracking-widest mb-4">Execution Plan</h4>
+                  <PlanViewer plan={plan} />
                 </div>
-              )}
 
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <h4 className="text-lg font-semibold text-slate-800 mb-4">Raw Audit Trail</h4>
-                <AuditLogViewer taskId={task.id} apiUrl={apiUrl} />
+                {snapshot && (
+                  <div className="glass-card rounded-xl p-6">
+                    <h4 className="text-sm font-semibold text-text-muted uppercase tracking-widest mb-4">Filesystem Changes</h4>
+                    <ChangeViewer
+                      snapshot={snapshot}
+                      onRollback={handleRollback}
+                      isRollingBack={isRollingBack}
+                    />
+                  </div>
+                )}
+
+                <div className="glass-card rounded-xl p-6">
+                  <h4 className="text-sm font-semibold text-text-muted uppercase tracking-widest mb-4">Raw Audit Trail</h4>
+                  <AuditLogViewer taskId={task.id} apiUrl={apiUrl} />
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

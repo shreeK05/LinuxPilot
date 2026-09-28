@@ -1,7 +1,7 @@
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 class AgentState(str, Enum):
@@ -53,11 +53,12 @@ class RecoveryDecision(BaseModel):
 class StateTransition(BaseModel):
     from_state: AgentState
     to_state: AgentState
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     reason: Optional[str] = None
     context_data: Optional[Dict[str, Any]] = None
 
 class GoalUnderstanding(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     intent: str
     objective: str
     entities: List[str] = Field(default_factory=list)

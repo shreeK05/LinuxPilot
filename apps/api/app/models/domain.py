@@ -1,8 +1,8 @@
 import uuid
 from typing import Any
-from sqlalchemy.orm import as_declarative, declared_attr
+from sqlalchemy.orm import as_declarative, declared_attr, relationship
 from sqlalchemy import Column, String, Integer, Float, DateTime, Text, JSON, ForeignKey
-from datetime import datetime
+from datetime import datetime, timezone
 from app.db.base_class import Base
 
 class User(Base):
@@ -10,7 +10,7 @@ class User(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     settings = Column(JSON, default=dict)
 
 class Task(Base):
@@ -20,15 +20,17 @@ class Task(Base):
     goal = Column(Text, nullable=False)
     status = Column(String, default="PENDING")
     risk_level = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+    
+    plans = relationship("Plan", backref="task", cascade="all, delete-orphan")
 
 class AuditEvent(Base):
     __tablename__ = 'audit_events'
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     task_id = Column(String, ForeignKey('tasks.id'))
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     event_type = Column(String)
     actor = Column(String)
     payload = Column(JSON)
@@ -39,7 +41,7 @@ class Execution(Base):
     task_id = Column(String, ForeignKey('tasks.id'))
     worker_id = Column(String)
     status = Column(String)
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
 
 class Plan(Base):
@@ -48,7 +50,9 @@ class Plan(Base):
     task_id = Column(String, ForeignKey('tasks.id'))
     version = Column(Integer, default=1)
     status = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    steps = relationship("PlanStep", backref="plan", cascade="all, delete-orphan", order_by="PlanStep.sequence")
 
 class Snapshot(Base):
     __tablename__ = 'snapshots'
@@ -61,7 +65,7 @@ class Snapshot(Base):
     size_bytes = Column(Integer, nullable=True)
     operation_type = Column(String, nullable=False)
     restoration_status = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class PlanStep(Base):
     __tablename__ = 'plan_steps'
@@ -91,7 +95,7 @@ class Approval(Base):
     task_id = Column(String, ForeignKey('tasks.id'))
     plan_id = Column(String, ForeignKey('plans.id'), nullable=True)
     action_id = Column(String, nullable=False)
-    requested_at = Column(DateTime, default=datetime.utcnow)
+    requested_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     risk_level = Column(Integer)
     reason = Column(String)
     status = Column(String)

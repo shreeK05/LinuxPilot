@@ -15,7 +15,7 @@ class AgentStateMachine:
         AgentState.READY: [AgentState.EXECUTING, AgentState.CANCELLED],
         AgentState.EXECUTING: [AgentState.VERIFYING, AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED, AgentState.RETRYING, AgentState.REPLANNING, AgentState.ROLLING_BACK],
         AgentState.VERIFYING: [AgentState.COMPLETED, AgentState.EXECUTING, AgentState.RETRYING, AgentState.REPLANNING, AgentState.ROLLING_BACK, AgentState.FAILED],
-        AgentState.RETRYING: [AgentState.EXECUTING, AgentState.FAILED, AgentState.CANCELLED],
+        AgentState.RETRYING: [AgentState.EXECUTING, AgentState.VERIFYING, AgentState.FAILED, AgentState.CANCELLED],
         AgentState.REPLANNING: [AgentState.PLANNING, AgentState.POLICY_CHECK, AgentState.FAILED, AgentState.CANCELLED],
         AgentState.ROLLING_BACK: [AgentState.FAILED, AgentState.COMPLETED],
         # Terminal states

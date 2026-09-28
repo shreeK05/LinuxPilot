@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 class FileSnapshotRecord(BaseModel):
@@ -11,11 +11,11 @@ class FileSnapshotRecord(BaseModel):
     snapshot_path: Optional[str] = None
     hash_sha256: Optional[str] = None
     status: str = "ACTIVE"  # ACTIVE, RESTORED, FAILED
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class TaskSnapshot(BaseModel):
     task_id: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     files: List[FileSnapshotRecord] = Field(default_factory=list)
     status: str = "ACTIVE"  # ACTIVE, COMMITTED, ROLLED_BACK, PARTIAL_ROLLBACK
     rollback_status: Optional[str] = None

@@ -7,13 +7,13 @@ def get_task(db: Session, task_id: str) -> Task:
     return db.query(Task).filter(Task.id == task_id).first()
 
 def update_task_state(db: Session, task_id: str, state: AgentState):
-    from datetime import datetime
+    from datetime import datetime, timezone
     try:
         task = db.query(Task).filter(Task.id == task_id).first()
         if task:
             task.status = state.value
             if state in (AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED):
-                task.completed_at = datetime.utcnow()
+                task.completed_at = datetime.now(timezone.utc)
             db.commit()
             db.refresh(task)
     except Exception:

@@ -4,6 +4,9 @@ from pypdf import PdfReader
 from openpyxl import load_workbook, Workbook
 from app.agent.actions.registry import ActionHandler, ActionExecutionResult
 from app.agent.models import ActionDefinition
+from app.adapters.linux.filesystem.security import FilesystemSecurityPolicy
+
+security_policy = FilesystemSecurityPolicy()
 
 class PDFExtractTextHandler(ActionHandler):
     """
@@ -14,10 +17,14 @@ class PDFExtractTextHandler(ActionHandler):
     def execute(self, action: ActionDefinition) -> ActionExecutionResult:
         try:
             path = action.parameters.get("path")
-            if not path or not os.path.exists(path):
+            if not path:
+                return ActionExecutionResult(success=False, output=None, error="File path is required")
+            
+            safe_path = security_policy.validate_path(path)
+            if not safe_path.exists():
                 return ActionExecutionResult(success=False, output=None, error=f"File not found: {path}")
 
-            reader = PdfReader(path)
+            reader = PdfReader(str(safe_path))
             text_content = ""
             for page in reader.pages:
                 extracted = page.extract_text()
@@ -38,12 +45,16 @@ class XLSXReadHandler(ActionHandler):
     def execute(self, action: ActionDefinition) -> ActionExecutionResult:
         try:
             path = action.parameters.get("path")
-            if not path or not os.path.exists(path):
+            if not path:
+                return ActionExecutionResult(success=False, output=None, error="File path is required")
+            
+            safe_path = security_policy.validate_path(path)
+            if not safe_path.exists():
                 return ActionExecutionResult(success=False, output=None, error=f"File not found: {path}")
 
             sheet_name = action.parameters.get("sheet_name")
             
-            wb = load_workbook(path, data_only=True)
+            wb = load_workbook(str(safe_path), data_only=True)
             if sheet_name and sheet_name in wb.sheetnames:
                 sheet = wb[sheet_name]
             else:
@@ -74,8 +85,10 @@ class XLSXWriteHandler(ActionHandler):
             if not path:
                 return ActionExecutionResult(success=False, output=None, error="Path is required")
 
-            if os.path.exists(path):
-                wb = load_workbook(path)
+            safe_path = security_policy.validate_path(path)
+
+            if safe_path.exists():
+                wb = load_workbook(str(safe_path))
                 if sheet_name in wb.sheetnames:
                     sheet = wb[sheet_name]
                 else:
@@ -88,7 +101,7 @@ class XLSXWriteHandler(ActionHandler):
             for row_data in rows:
                 sheet.append(row_data)
 
-            wb.save(path)
+            wb.save(str(safe_path))
                 
             return ActionExecutionResult(success=True, output={"path": path, "rows_written": len(rows)})
         except Exception as e:

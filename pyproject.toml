@@ -1,0 +1,206 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linuxpilot"
+version = "1.0.0"
+description = "A Trust-First OS Agent for Linux - ACID for AI Desktop Agents"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "LinuxPilot Team"}
+]
+keywords = ["automation", "agent", "linux", "desktop", "ai", "sandbox"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    # Core
+    "pydantic>=2.13.0",
+    "pydantic-settings>=2.15.0",
+    "pydantic-core>=2.46.0",
+    
+    # FastAPI & Web
+    "fastapi>=0.141.0",
+    "uvicorn[standard]>=0.53.0",
+    "websockets>=17.0",
+    "python-multipart>=0.0.32",
+    
+    # Database
+    "sqlalchemy>=2.0.54",
+    "alembic>=1.20.0",
+    "psycopg2-binary>=2.9.13",
+    
+    # LLM
+    "openai>=3.17.0",
+    "httpx>=0.28.0",
+    "tenacity>=8.3.0",
+    
+    # Authentication
+    "python-jose[cryptography]>=3.5.0",
+    "passlib[bcrypt]>=1.7.4",
+    "python-dotenv>=1.2.0",
+    
+    # AT-SPI (Accessibility)
+    "pygobject>=3.48.0",
+    
+    # File Operations
+    "pypdf>=6.19.0",
+    "openpyxl>=3.1.5",
+    "pdfplumber>=0.10.0",
+    
+    # OCR (fallback)
+    "pytesseract>=0.3.10",
+    "Pillow>=10.0.0",
+    
+    # Browser Automation
+    "playwright>=1.63.0",
+    
+    # System & Sandbox
+    "psutil>=6.1.0",
+    
+    # Observability
+    "prometheus-client>=0.26.0",
+    "python-json-logger>=4.2.0",
+    
+    # Security
+    "cryptography>=50.0.0",
+    
+    # Utilities
+    "PyYAML>=6.0.0",
+    "typing-extensions>=4.16.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "pytest-timeout>=2.3.0",
+    "hypothesis>=6.100.0",
+    "ruff>=0.6.0",
+    "mypy>=1.10.0",
+    "black>=24.0.0",
+    "pre-commit>=3.7.0",
+]
+
+test = [
+    "pytest>=9.1.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "pytest-timeout>=2.3.0",
+    "hypothesis>=6.100.0",
+    "pytest-xdist>=3.6.0",
+]
+
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocs-gen-files>=0.5.0",
+    "mkdocs-literate-nav>=0.6.0",
+    "mkdocs-section-index>=0.3.0",
+]
+
+benchmark = [
+    "matplotlib>=3.9.0",
+    "pandas>=2.2.0",
+]
+
+all = [
+    "linuxpilot[dev,test,docs,benchmark]",
+]
+
+[project.scripts]
+lp = "linuxpilot.cli:main"
+lpd = "linuxpilot.cli:daemon"
+lp-doctor = "linuxpilot.cli:doctor"
+
+[project.urls]
+Homepage = "https://github.com/linuxpilot/linuxpilot"
+Documentation = "https://linuxpilot.readthedocs.io"
+Repository = "https://github.com/linuxpilot/linuxpilot"
+Issues = "https://github.com/linuxpilot/linuxpilot/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG", # flake8-unused-arguments
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "W191",  # indentation contains tabs
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ARG", "S101"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--tb=short",
+    "-ra",
+]
+markers = [
+    "unit: Unit tests",
+    "property: Property-based tests",
+    "integration: Integration tests",
+    "chaos: Chaos/fault-injection tests",
+    "security: Security tests",
+    "soak: Soak/long-running tests",
+    "gui: GUI tests (requires X11)",
+    "slow: Slow tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

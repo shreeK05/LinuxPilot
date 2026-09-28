@@ -1,23 +1,75 @@
 @import "tailwindcss";
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-  background-color: #f8fafc; /* slate-50 */
+@theme {
+  --color-brand-50: #eff6ff;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-900: #1e3a8a;
+  
+  --color-surface-900: #0B1120;
+  --color-surface-800: #111827;
+  --color-surface-700: #1F2937;
+  --color-surface-600: #374151;
+  
+  --color-text-main: #F3F4F6;
+  --color-text-muted: #9CA3AF;
+  
+  --color-danger-500: #EF4444;
+  --color-warning-500: #F59E0B;
+  --color-success-500: #10B981;
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  
+  body {
+    margin: 0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: var(--color-surface-900);
+    color: var(--color-text-main);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
-.animation-fade-in {
-  animation: fadeIn 0.4s ease-out forwards;
+@layer utilities {
+  .glass-panel {
+    background: rgba(17, 24, 39, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  
+  .glass-card {
+    background: rgba(31, 41, 55, 0.6);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+  }
+
+  .glow-danger {
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+  }
+  
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .animate-spin-slow {
-  animation: spin 3s linear infinite;
+  animation: spin-slow 3s linear infinite;
 }

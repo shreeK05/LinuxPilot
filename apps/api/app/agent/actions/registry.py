@@ -40,7 +40,7 @@ class UnknownActionError(Exception):
 from app.agent.actions.filesystem_handlers import (
     FSListDirectoryHandler, FSStatHandler, FSReadFileHandler,
     FSCreateDirectoryHandler, FSCopyHandler, FSMoveHandler,
-    FSRenameHandler, FSWriteFileHandler, FSDeleteHandler
+    FSRenameHandler, FSWriteFileHandler, FSDeleteHandler, FSFindFilesHandler
 )
 from app.agent.actions.document_handlers import (
     PDFExtractTextHandler, XLSXReadHandler, XLSXWriteHandler
@@ -61,18 +61,46 @@ class SystemInfoHandler(ActionHandler):
                 res = SafeTerminalCommands.get_memory_usage()
             elif target == "cpu_info":
                 res = SafeTerminalCommands.get_cpu_info()
+            elif target == "os_info":
+                res = SafeTerminalCommands.get_os_info()
             else:
                 raise UnknownActionError(f"Unknown system command: {target}")
             return ActionExecutionResult(success=True, output=res)
         except Exception as e:
             return ActionExecutionResult(success=False, output=None, error=str(e))
 
+
+class AgentRespondHandler(ActionHandler):
+    def execute(self, action: ActionDefinition) -> ActionExecutionResult:
+        content = action.parameters.get('content', '')
+        outputs = action.parameters.get('__step_outputs', '')
+        
+        if "{{" in content and outputs:
+            try:
+                from app.agent.llm.provider import get_llm_provider
+                from pydantic import BaseModel
+                class FinalAnswer(BaseModel):
+                    answer: str
+                provider = get_llm_provider()
+                res = provider.generate_structured(
+                    prompt=f"Please answer this logically: {content}\n\nBased on this raw execution data:\n{outputs[:4000]}",
+                    system_prompt="You are the LinuxPilot Synthesis Engine. Provide ONLY a clean, accurate, natural language sentence for the user based on the raw data. Do not use JSON.",
+                    response_model=FinalAnswer
+                )
+                content = res.answer
+            except Exception as e:
+                pass
+                
+        return ActionExecutionResult(success=True, output=content)
+
 class ActionRegistry:
     def __init__(self):
         self._handlers: Dict[str, ActionHandler] = {}
+        self.register('agent.respond', AgentRespondHandler())
         
         # Filesystem
         self.register("filesystem.list_directory", FSListDirectoryHandler())
+        self.register("filesystem.find_files", FSFindFilesHandler())
         self.register("filesystem.stat", FSStatHandler())
         self.register("filesystem.read_file", FSReadFileHandler())
         self.register("filesystem.create_directory", FSCreateDirectoryHandler())

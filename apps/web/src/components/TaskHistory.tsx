@@ -1,6 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, CheckCircle2, AlertCircle, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, AlertTriangle, ShieldAlert, ChevronRight } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { cn } from '../utils/cn';
 
 export interface Task {
   id: string;
@@ -17,16 +19,16 @@ export const TaskHistory: React.FC<{ tasks: Task[] }> = ({ tasks }) => {
   const getStatusDisplay = (status: string) => {
     switch(status) {
       case 'COMPLETED':
-        return { text: 'Completed', icon: <CheckCircle2 size={16} />, className: 'text-green-600 bg-green-50 border-green-200' };
+        return { text: 'Completed', icon: <CheckCircle2 size={16} />, className: 'text-success-500 bg-success-500/10 border-success-500/20' };
       case 'FAILED':
-        return { text: 'Failed', icon: <AlertCircle size={16} />, className: 'text-red-600 bg-red-50 border-red-200' };
+        return { text: 'Failed', icon: <AlertCircle size={16} />, className: 'text-danger-500 bg-danger-500/10 border-danger-500/20' };
       case 'WAITING_APPROVAL':
-        return { text: 'Needs Approval', icon: <ShieldAlert size={16} />, className: 'text-amber-600 bg-amber-50 border-amber-200' };
+        return { text: 'Needs Approval', icon: <ShieldAlert size={16} />, className: 'text-warning-500 bg-warning-500/10 border-warning-500/20' };
       case 'ROLLING_BACK':
       case 'ROLLED_BACK':
-        return { text: 'Rolled Back', icon: <AlertTriangle size={16} />, className: 'text-orange-600 bg-orange-50 border-orange-200' };
+        return { text: 'Rolled Back', icon: <AlertTriangle size={16} />, className: 'text-orange-500 bg-orange-500/10 border-orange-500/20' };
       default:
-        return { text: 'Active', icon: <Clock size={16} />, className: 'text-blue-600 bg-blue-50 border-blue-200' };
+        return { text: 'Active', icon: <Clock size={16} />, className: 'text-brand-400 bg-brand-500/10 border-brand-500/20' };
     }
   };
 
@@ -39,60 +41,68 @@ export const TaskHistory: React.FC<{ tasks: Task[] }> = ({ tasks }) => {
     const diffDays = Math.floor(diffHours / 24);
 
     if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hr ago`;
     if (diffDays === 1) return 'Yesterday';
     return date.toLocaleDateString();
   };
 
   return (
-    <div className="w-full animation-fade-in">
-      <div className="flex justify-between items-end mb-6">
+    <div className="w-full">
+      <div className="flex justify-between items-end mb-8">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Task History</h2>
-          <p className="text-slate-500 mt-1">Review your past activities and active tasks</p>
+          <h2 className="text-3xl font-bold text-white tracking-tight">Task History</h2>
+          <p className="text-text-muted mt-2">Review your past activities and active tasks</p>
         </div>
       </div>
 
       {tasks.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center shadow-sm">
-          <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
-            <Clock size={32} />
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-2xl p-16 text-center"
+        >
+          <div className="w-20 h-20 bg-surface-800 rounded-full flex items-center justify-center mx-auto mb-6 text-text-muted border border-white/5">
+            <Clock size={36} />
           </div>
-          <h3 className="text-lg font-medium text-slate-900 mb-2">No tasks found</h3>
-          <p className="text-slate-500">Go to Home to start your first task.</p>
-        </div>
+          <h3 className="text-xl font-medium text-white mb-2">No tasks found</h3>
+          <p className="text-text-muted">Go to Home to start your first task.</p>
+        </motion.div>
       ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {tasks.map(task => {
+        <div className="flex flex-col gap-3">
+          {tasks.map((task, idx) => {
             const display = getStatusDisplay(task.status);
             return (
-              <div
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.05 }}
                 key={task.id}
-                className="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md transition-shadow cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
+                className="glass-card rounded-xl p-5 hover:bg-surface-700/50 hover:border-brand-500/30 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
                 onClick={() => navigate(`/tasks/${task.id}`)}
               >
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${display.className}`}>
+                  <div className="flex items-center gap-3 mb-2.5">
+                    <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border", display.className)}>
                       {display.icon}
                       {display.text}
                     </span>
-                    <span className="text-xs text-slate-400 font-medium">
+                    <span className="text-xs text-text-muted font-medium flex items-center gap-1">
+                      <Clock size={12} />
                       {formatTime(task.completed_at || task.created_at)}
                     </span>
                   </div>
-                  <h3 className="text-lg font-medium text-slate-900 group-hover:text-blue-600 transition-colors">
+                  <h3 className="text-lg font-medium text-white group-hover:text-brand-400 transition-colors">
                     {task.goal}
                   </h3>
                 </div>
 
                 <div className="flex items-center">
-                  <button className="text-sm font-medium text-slate-500 group-hover:text-blue-600 bg-slate-50 px-4 py-2 rounded-lg group-hover:bg-blue-50 transition-colors">
-                    View
-                  </button>
+                  <div className="w-10 h-10 rounded-lg bg-surface-800 border border-white/5 flex items-center justify-center text-text-muted group-hover:bg-brand-600/20 group-hover:text-brand-400 group-hover:border-brand-500/30 transition-all">
+                    <ChevronRight size={20} />
+                  </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>

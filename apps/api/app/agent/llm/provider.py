@@ -2,7 +2,9 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Type, TypeVar
 from pydantic import BaseModel
+import openai
 from openai import OpenAI, AsyncOpenAI
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -54,6 +56,17 @@ class OpenAICompatibleProvider(LLMProvider):
         
         self.last_metadata = {}
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((
+            openai.RateLimitError,
+            openai.APITimeoutError,
+            openai.APIConnectionError,
+            openai.InternalServerError
+        )),
+        reraise=True
+    )
     def generate_structured(
         self,
         prompt: str,
@@ -63,14 +76,18 @@ class OpenAICompatibleProvider(LLMProvider):
         max_tokens: int = 4096
     ) -> T:
         try:
-            # We use the beta parse feature of the openai SDK to enforce structured output
-            response = self.client.beta.chat.completions.parse(
+            # We use standard json_object for Groq compatibility
+            # Instruct the model to return JSON matching the schema
+            schema = response_model.model_json_schema()
+            sys_prompt = system_prompt + f"\n\nYou MUST return ONLY valid JSON matching this schema: {schema}"
+            
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                response_format=response_model,
+                response_format={"type": "json_object"},
                 temperature=temperature,
                 max_tokens=max_tokens
             )
@@ -83,11 +100,17 @@ class OpenAICompatibleProvider(LLMProvider):
                 "usage": dict(response.usage) if response.usage else None
             }
             
-            if response.choices[0].message.refusal:
-                raise LLMProviderError(f"Model refused: {response.choices[0].message.refusal}")
-                
-            return response.choices[0].message.parsed
+            content = response.choices[0].message.content
+            return response_model.model_validate_json(content)
             
+        except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError, openai.InternalServerError) as e:
+            # Let tenacity handle these
+            self.last_metadata = {
+                "provider": "openai_compatible",
+                "model": self.model,
+                "error": str(e)
+            }
+            raise e
         except Exception as e:
             self.last_metadata = {
                 "provider": "openai_compatible",

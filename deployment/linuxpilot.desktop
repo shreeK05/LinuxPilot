@@ -1,0 +1,8 @@
+﻿[Desktop Entry]
+Name=LinuxPilot
+Comment=AI-Powered System Assistant
+Exec=xdg-open http://localhost
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=Utility;System;

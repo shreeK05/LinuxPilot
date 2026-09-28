@@ -4,7 +4,7 @@ import hashlib
 import uuid
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict
 from pydantic import BaseModel, Field
 
@@ -17,13 +17,13 @@ class FileSnapshotRecord(BaseModel):
     snapshot_path: Optional[str] = None
     original_hash: Optional[str] = None
     size_bytes: int = 0
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     operation_type: str
     restoration_status: str = "PENDING" # PENDING, RESTORED, FAILED, UNAVAILABLE
 
 class TaskSnapshot(BaseModel):
     task_id: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     files: list[FileSnapshotRecord] = Field(default_factory=list)
     status: str = "ACTIVE"
     rollback_status: Optional[str] = None

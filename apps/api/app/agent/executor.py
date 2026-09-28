@@ -32,22 +32,39 @@ class ExecutionEngine:
             return ActionExecutionResult(success=False, output=None, error=str(e))
 
         # 3. Execute
-        # In a real engine, we'd run this asynchronously with a timeout.
-        # For Phase 2/6, we execute synchronously.
-        start_time = time.time()
+        import concurrent.futures
         
         def _run_handler():
-            res = handler.execute(action)
-            if time.time() - start_time > action.timeout_seconds:
-                return ActionExecutionResult(success=False, output=None, error="Action timed out")
-            return res
-            
-        try:
+            return handler.execute(action)
+
+        def _execute_task():
             if action.sandbox_config.required:
                 from app.agent.sandbox.manager import SandboxManager
                 sandbox = SandboxManager()
                 return sandbox.execute_in_sandbox(action, _run_handler)
             else:
                 return _run_handler()
+
+        if action.action_type.startswith("browser."):
+            # Playwright objects are strictly bound to a single thread.
+            # Running them in a temporary ThreadPoolExecutor destroys the session across steps.
+            # We bypass the timeout thread and run it directly on the orchestrator thread.
+            try:
+                return _execute_task()
+            except Exception as e:
+                return ActionExecutionResult(success=False, output=None, error=f"Execution exception: {str(e)}")
+
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_execute_task)
+        try:
+            return future.result(timeout=action.timeout_seconds)
+        except concurrent.futures.TimeoutError:
+            return ActionExecutionResult(
+                success=False,
+                output=None,
+                error=f"ACTION_TIMEOUT: Action exceeded {action.timeout_seconds}s limit"
+            )
         except Exception as e:
             return ActionExecutionResult(success=False, output=None, error=f"Execution exception: {str(e)}")
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)

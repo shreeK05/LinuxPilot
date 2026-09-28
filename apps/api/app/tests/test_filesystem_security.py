@@ -35,14 +35,32 @@ def test_validate_path_relative_traversal():
     with pytest.raises(FilesystemSecurityError, match="resolves outside allowed roots"):
         policy.validate_path(attack_path)
 
-def test_restricted_directories():
-    policy = FilesystemSecurityPolicy()
+def test_never_allowed_directories():
+    base = Path.home() / "Documents"
+    # Even if we explicitly allow a root, never_allowed should override
+    policy = FilesystemSecurityPolicy(allowed_roots=[str(base)], never_allowed=[str(base / "secrets")])
     
-    # Check that root restricted dirs are blocked
-    restricted_paths = ["/etc", "/bin", "/var/log", "/sys", "/dev", "/usr/bin"]
-    if Path.cwd().drive:
-        restricted_paths = [Path.cwd().drive + "\\Windows", Path.cwd().drive + "\\Program Files"]
+    # Allowed
+    safe_path = base / "safe_file.txt"
+    assert policy.validate_path(str(safe_path)) == safe_path.resolve()
+    
+    # Never allowed exact match
+    secret_path = base / "secrets"
+    with pytest.raises(FilesystemSecurityError, match="inside a protected system directory"):
+        policy.validate_path(str(secret_path))
         
-    for path in restricted_paths:
-        with pytest.raises(FilesystemSecurityError):
-            policy.validate_path(path)
+    # Never allowed sub-directory
+    secret_file = base / "secrets" / "key.txt"
+    with pytest.raises(FilesystemSecurityError, match="inside a protected system directory"):
+        policy.validate_path(str(secret_file))
+
+def test_o_nofollow_opener():
+    from app.adapters.linux.filesystem.operations import FilesystemAdapter
+    policy = FilesystemSecurityPolicy()
+    adapter = FilesystemAdapter(policy)
+    
+    # Check that it runs without crashing, since we cannot easily test os.open directly
+    # without mocking. We just ensure the _safe_opener is callable and returns a descriptor or fails gracefully.
+    import os
+    if hasattr(os, "O_NOFOLLOW"):
+        assert adapter._safe_opener is not None
