@@ -101,7 +101,7 @@ def create_app() -> FastAPI:
         logger.warning("prometheus_client not installed, metrics disabled")
 
     # Serve dashboard static files if available
-    dashboard_dist = Path(__file__).parent.parent.parent.parent / "dashboard" / "dist"
+    dashboard_dist = Path(__file__).parent.parent.parent.parent / "dashboard" / "out"
     if dashboard_dist.exists():
         app.mount(
             "/dashboard",
