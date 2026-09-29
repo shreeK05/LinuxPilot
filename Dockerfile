@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Desktop environment
     xfce4 xfce4-terminal thunar mousepad \
     # VNC + noVNC
-    tigervnc-standalone-server tigervnc-common \
+    tigervnc-standalone-server tigervnc-common tigervnc-tools \
     novnc websockify \
     # Accessibility
     at-spi2-core dbus-x11 \
