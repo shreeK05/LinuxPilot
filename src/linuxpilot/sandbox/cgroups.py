@@ -24,8 +24,9 @@ class CgroupManager:
         # Ensure base directory exists
         try:
             self.cgroup_linuxpilot.mkdir(exist_ok=True)
-        except PermissionError:
-            logger.warning("Cannot create cgroup directory - may need root privileges")
+        except (PermissionError, OSError) as e:
+            logger.warning(f"Cannot create cgroup directory (cgroups will be disabled): {e}")
+            self.cgroup_linuxpilot = None
     
     def create_cgroup(
         self,
@@ -47,6 +48,8 @@ class CgroupManager:
             Path to the cgroup or None if failed
         """
         try:
+            if not self.cgroup_linuxpilot:
+                return None
             cgroup_path = self.cgroup_linuxpilot / task_id
             cgroup_path.mkdir(exist_ok=True)
             
@@ -92,6 +95,8 @@ class CgroupManager:
             True if successful
         """
         try:
+            if not self.cgroup_linuxpilot:
+                return True
             cgroup_path = self.cgroup_linuxpilot / task_id
             
             if not cgroup_path.exists():
@@ -121,6 +126,8 @@ class CgroupManager:
             True if successful
         """
         try:
+            if not self.cgroup_linuxpilot:
+                return True
             cgroup_path = self.cgroup_linuxpilot / task_id
             kill_file = cgroup_path / "cgroup.kill"
             
@@ -163,6 +170,8 @@ class CgroupManager:
             Dictionary with stats or None if failed
         """
         try:
+            if not self.cgroup_linuxpilot:
+                return None
             cgroup_path = self.cgroup_linuxpilot / task_id
             
             if not cgroup_path.exists():
@@ -208,7 +217,7 @@ class CgroupManager:
     def list_cgroups(self) -> list[str]:
         """List all active cgroups"""
         try:
-            if not self.cgroup_linuxpilot.exists():
+            if not self.cgroup_linuxpilot or not self.cgroup_linuxpilot.exists():
                 return []
             
             return [item.name for item in self.cgroup_linuxpilot.iterdir() if item.is_dir()]
